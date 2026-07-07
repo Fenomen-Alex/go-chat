@@ -682,7 +682,11 @@ func (m Model) peersView() string {
 	}
 	var items []string
 	for _, p := range m.peerList {
-		items = append(items, fmt.Sprintf("  %s (%s)", p.DisplayName, p.Status))
+		id := p.PeerID
+		if len(id) > 16 {
+			id = id[:16]
+		}
+		items = append(items, fmt.Sprintf("  %s (%s) [%s]", p.DisplayName, p.Status, id))
 	}
 	return strings.Join(items, "\n")
 }
