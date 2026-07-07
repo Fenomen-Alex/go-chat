@@ -5,23 +5,23 @@ import "github.com/charmbracelet/lipgloss"
 var (
 	AppStyle = lipgloss.NewStyle().Padding(0, 1)
 
-	OrgPanelStyle = lipgloss.NewStyle().
-			Width(22).
-			Border(lipgloss.RoundedBorder())
-
-	OrgPanelFocusedStyle = lipgloss.NewStyle().
-				Width(22).
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#5865F2"))
-
 	ChannelPanelStyle = lipgloss.NewStyle().
-				Width(26).
+				Width(32).
 				Border(lipgloss.RoundedBorder())
 
 	ChannelPanelFocusedStyle = lipgloss.NewStyle().
-					Width(26).
+					Width(32).
 					Border(lipgloss.RoundedBorder()).
 					BorderForeground(lipgloss.Color("#57F287"))
+
+	LogPanelStyle = lipgloss.NewStyle().
+			Width(32).
+			Border(lipgloss.RoundedBorder())
+
+	LogPanelFocusedStyle = lipgloss.NewStyle().
+				Width(32).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#FEE75C"))
 
 	ChatPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder())
@@ -44,25 +44,21 @@ var (
 			Padding(0, 1).
 			Bold(true)
 
-	SelectedOrgStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(lipgloss.Color("#5865F2")).
-				Padding(0, 1).
-				Bold(true)
-
 	SelectedChannelStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")).
 				Background(lipgloss.Color("#57F287")).
 				Padding(0, 1).
 				Bold(true)
 
-	OrgItemStyle = lipgloss.NewStyle().Padding(0, 1)
-
 	ChannelItemStyle = lipgloss.NewStyle().Padding(0, 1)
 
 	SenderStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#57F287"))
+
+	SelfSenderStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FEE75C"))
 
 	TimeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#808080")).

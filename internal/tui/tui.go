@@ -25,22 +25,12 @@ type MessageItem struct {
 	Timestamp string
 }
 
-type focusPanel int
-
-const (
-	focusChannels focusPanel = iota
-	focusOrgs
-)
-
 type Model struct {
 	app          *app.App
 	ready        bool
 	width        int
 	height       int
 	firstLaunch  bool
-
-	orgList      []*storage.Organization
-	selectedOrg  int
 
 	channelList  []*storage.Channel
 	selectedChan int
@@ -50,15 +40,17 @@ type Model struct {
 
 	input        textinput.Model
 	inputMode    bool
-	focus        focusPanel
 
 	statusText   string
 	statusLog    []string
 
 	peerList     []*storage.Peer
+	logEntries   []string
 
 	showHelp     bool
 	showPeers    bool
+
+	logPanelFocused bool
 
 	err          error
 }
@@ -74,7 +66,6 @@ func NewModel(a *app.App) *Model {
 		app:         a,
 		input:       ti,
 		inputMode:   true,
-		focus:       focusChannels,
 		firstLaunch: true,
 		statusText:  fmt.Sprintf("PeerID: %s | /myaddr to see shareable address", a.PeerID()),
 	}
@@ -83,11 +74,9 @@ func NewModel(a *app.App) *Model {
 type tickMsg time.Time
 
 func (m *Model) Init() tea.Cmd {
-	m.loadOrgs()
-	if len(m.orgList) > 0 {
-		m.loadChannels()
-	}
+	m.loadChannels()
 	m.loadPeers()
+	m.loadLogs()
 	return tea.Batch(textinput.Blink, m.nextTick())
 }
 
@@ -106,6 +95,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadMessages()
 		}
 		m.loadPeers()
+		m.loadLogs()
 		return m, m.nextTick()
 
 	case tea.WindowSizeMsg:
@@ -113,15 +103,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
-		leftPanelWidth := 50
+		leftPanelWidth := 66
 		inputHeight := 3
 		statusHeight := 1
 		chatHeight := m.height - inputHeight - statusHeight - 4
 
+		chatW := m.width - leftPanelWidth - 8
+		if chatW < 20 {
+			chatW = 20
+		}
+
 		if m.chatView.Height == 0 {
-			m.chatView = viewport.New(m.width-leftPanelWidth-6, chatHeight)
+			m.chatView = viewport.New(chatW, chatHeight)
 		} else {
-			m.chatView.Width = m.width - leftPanelWidth - 6
+			m.chatView.Width = chatW
 			m.chatView.Height = chatHeight
 		}
 
@@ -135,21 +130,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			if m.inputMode {
 				m.inputMode = false
-				m.focus = focusChannels
+				m.logPanelFocused = false
 				m.loadPeers()
+			} else if !m.logPanelFocused {
+				m.logPanelFocused = true
 			} else {
-				switch m.focus {
-				case focusChannels:
-					m.focus = focusOrgs
-				case focusOrgs:
-					m.focus = focusChannels
-				}
+				m.inputMode = true
+				m.logPanelFocused = false
 			}
 
 		case "up":
 			if m.inputMode {
 				m.chatView.LineUp(1)
-			} else if m.selectedChan > 0 {
+			} else if !m.logPanelFocused && m.selectedChan > 0 {
 				m.selectedChan--
 				m.loadMessages()
 			}
@@ -157,21 +150,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down":
 			if m.inputMode {
 				m.chatView.LineDown(1)
-			} else if m.selectedChan < len(m.channelList)-1 {
+			} else if !m.logPanelFocused && m.selectedChan < len(m.channelList)-1 {
 				m.selectedChan++
 				m.loadMessages()
-			}
-
-		case "left":
-			if !m.inputMode && m.selectedOrg > 0 {
-				m.selectedOrg--
-				m.loadChannels()
-			}
-
-		case "right":
-			if !m.inputMode && m.selectedOrg < len(m.orgList)-1 {
-				m.selectedOrg++
-				m.loadChannels()
 			}
 
 		case "enter":
@@ -271,33 +252,6 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		m.loadPeers()
 		m.showPeers = !m.showPeers
 
-	case "/org":
-		if len(parts) < 2 {
-			m.addStatus("Usage: /org create <name> or /org list")
-			return nil
-		}
-		switch parts[1] {
-		case "create":
-			if len(parts) < 3 {
-				m.addStatus("Usage: /org create <name>")
-				return nil
-			}
-			name := strings.Join(parts[2:], " ")
-			org, err := m.app.CreateOrg(name, "")
-			if err != nil {
-				m.addStatus(fmt.Sprintf("Error: %v", err))
-				return nil
-			}
-			m.orgList = append(m.orgList, org)
-			m.selectedOrg = len(m.orgList) - 1
-			m.loadChannels()
-			m.addStatus(fmt.Sprintf("Organization '%s' created", name))
-		case "list":
-			m.loadOrgs()
-		default:
-			m.addStatus("Unknown org command")
-		}
-
 	case "/channel":
 		if len(parts) < 2 {
 			m.addStatus("Usage: /channel create <name> or /channel list")
@@ -310,11 +264,7 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 				return nil
 			}
 			name := strings.Join(parts[2:], " ")
-			orgID := ""
-			if len(m.orgList) > 0 {
-				orgID = m.orgList[m.selectedOrg].OrgID
-			}
-			ch, err := m.app.CreateChannel(orgID, name, "text", "")
+			ch, err := m.app.CreateChannel(name, "text")
 			if err != nil {
 				m.addStatus(fmt.Sprintf("Error: %v", err))
 				return nil
@@ -464,33 +414,22 @@ func (m *Model) addStatus(msg string) {
 	}
 }
 
-func (m *Model) loadOrgs() {
-	orgs, err := m.app.ListOrgs()
-	if err != nil {
-		m.addStatus(fmt.Sprintf("Error loading orgs: %v", err))
-		return
+func (m *Model) loadLogs() {
+	entries := m.app.Logger.UIMessages()
+	m.logEntries = nil
+	for _, e := range entries {
+		m.logEntries = append(m.logEntries, fmt.Sprintf("[%s] %s", e.Level, e.Message))
 	}
-	m.orgList = orgs
 }
 
 func (m *Model) loadChannels() {
-	if len(m.orgList) == 0 {
-		channels, err := m.app.ListChannels("")
-		if err != nil {
-			m.addStatus(fmt.Sprintf("Error loading channels: %v", err))
-			return
-		}
-		m.channelList = channels
-	} else {
-		orgID := m.orgList[m.selectedOrg].OrgID
-		channels, err := m.app.ListChannels(orgID)
-		if err != nil {
-			m.addStatus(fmt.Sprintf("Error loading channels: %v", err))
-			return
-		}
-		m.channelList = channels
+	channels, err := m.app.ListChannels()
+	if err != nil {
+		m.addStatus(fmt.Sprintf("Error loading channels: %v", err))
+		return
 	}
-	if len(m.channelList) > 0 {
+	m.channelList = channels
+	if len(m.channelList) > 0 && m.selectedChan >= len(m.channelList) {
 		m.selectedChan = 0
 	}
 	m.loadMessages()
@@ -512,10 +451,7 @@ func (m *Model) loadMessages() {
 	m.messages = nil
 	for i := len(msgs) - 1; i >= 0; i-- {
 		msg := msgs[i]
-		sender := msg.SenderPeerID
-		if len(sender) > 12 {
-			sender = sender[:12]
-		}
+		sender := m.app.GetPeerDisplayName(msg.SenderPeerID)
 		m.messages = append(m.messages, MessageItem{
 			Sender:    sender,
 			Content:   msg.Content,
@@ -540,12 +476,12 @@ func (m *Model) View() string {
 		return "\n  Initializing..."
 	}
 
-	orgPanel := m.renderOrgPanel()
 	channelPanel := m.renderChannelPanel()
+	logPanel := m.renderLogPanel()
 	chatPanel := m.renderChatPanel()
 	statusBar := m.renderStatusBar()
 
-	leftSide := lipgloss.JoinHorizontal(lipgloss.Top, orgPanel, channelPanel)
+	leftSide := lipgloss.JoinVertical(lipgloss.Top, channelPanel, logPanel)
 
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, chatPanel)
 
@@ -556,7 +492,7 @@ func (m *Model) View() string {
 
 	if m.firstLaunch {
 		m.firstLaunch = false
-		m.addStatus("Press Tab to navigate orgs/channels | ? for help")
+		m.addStatus("Tab to navigate | ? for help | /channel create <name>")
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, topRow, input, statusBar)
@@ -564,36 +500,9 @@ func (m *Model) View() string {
 	return AppStyle.Render(body)
 }
 
-func (m *Model) renderOrgPanel() string {
-	style := OrgPanelStyle
-	if !m.inputMode && m.focus == focusOrgs {
-		style = OrgPanelFocusedStyle
-	}
-
-	if len(m.orgList) == 0 {
-		return style.Render(DimmedStyle.Render("No orgs\n\n/org create <name>"))
-	}
-
-	var items []string
-	for i, org := range m.orgList {
-		name := org.Name
-		if len(name) > 18 {
-			name = name[:18]
-		}
-		if i == m.selectedOrg {
-			items = append(items, SelectedOrgStyle.Render("  "+name+"  "))
-		} else {
-			items = append(items, OrgItemStyle.Render("  "+name))
-		}
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, items...)
-	return style.Render(TitleStyle.Render("Orgs") + "\n" + content)
-}
-
 func (m *Model) renderChannelPanel() string {
 	style := ChannelPanelStyle
-	if !m.inputMode && m.focus == focusChannels {
+	if !m.inputMode && !m.logPanelFocused {
 		style = ChannelPanelFocusedStyle
 	}
 
@@ -603,16 +512,13 @@ func (m *Model) renderChannelPanel() string {
 
 	var items []string
 	for i, ch := range m.channelList {
-		name := ch.Name
-		if len(name) > 22 {
-			name = name[:22]
-		}
 		prefix := "# "
-		if ch.ChannelType == "announcement" {
-			prefix = "! "
+		if ch.ChannelType == "dm" {
+			prefix = "@ "
 		}
-		if ch.ReadOnly {
-			prefix = "🔒 "
+		name := ch.Name
+		if len(name) > 28 {
+			name = name[:28]
 		}
 		if i == m.selectedChan {
 			items = append(items, SelectedChannelStyle.Render("  "+prefix+name+"  "))
@@ -622,7 +528,31 @@ func (m *Model) renderChannelPanel() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, items...)
-	return style.Render(TitleStyle.Render("Channels") + "\n" + content)
+	countStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Padding(0, 1)
+	return style.Render(TitleStyle.Render("Channels") + "\n" + content + "\n" + countStyle.Render(fmt.Sprintf("%d channels", len(m.channelList))))
+}
+
+func (m *Model) renderLogPanel() string {
+	style := LogPanelStyle
+	if !m.inputMode && m.logPanelFocused {
+		style = LogPanelFocusedStyle
+	}
+
+	var lines []string
+	start := 0
+	if len(m.logEntries) > 8 {
+		start = len(m.logEntries) - 8
+	}
+	for i := start; i < len(m.logEntries); i++ {
+		entry := m.logEntries[i]
+		if len(entry) > 60 {
+			entry = entry[:60]
+		}
+		lines = append(lines, DimmedStyle.Render(entry))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return style.Render(TitleStyle.Render("Logs") + "\n" + content)
 }
 
 func (m *Model) renderChatPanel() string {
@@ -652,11 +582,23 @@ func (m *Model) renderMessages() string {
 	}
 
 	var items []string
+	chatWidth := m.chatView.Width - 4
+	if chatWidth < 10 {
+		chatWidth = 40
+	}
 	for _, msg := range m.messages {
+		senderStyle := SenderStyle
+		if msg.Sender == m.app.Identity().DisplayName {
+			senderStyle = SelfSenderStyle
+		}
+		content := msg.Content
+		if len(content) > chatWidth-20 {
+			content = content[:chatWidth-23] + "..."
+		}
 		line := fmt.Sprintf("%s %s %s",
 			TimeStyle.Render(msg.Timestamp),
-			SenderStyle.Render(msg.Sender),
-			msg.Content,
+			senderStyle.Render(msg.Sender),
+			content,
 		)
 		items = append(items, line)
 	}
@@ -671,11 +613,8 @@ func (m *Model) renderStatusBar() string {
 	}
 
 	ctx := ""
-	if len(m.orgList) > 0 {
-		ctx = m.orgList[m.selectedOrg].Name
-	}
 	if len(m.channelList) > 0 {
-		ctx = ctx + " / #" + m.channelList[m.selectedChan].Name
+		ctx = "#" + m.channelList[m.selectedChan].Name
 	}
 
 	statusText := m.statusText
@@ -705,25 +644,24 @@ func (m Model) helpView() string {
   /publicip         Look up your public IP
   /connect <addr>   Connect to a peer directly
   /relay <addr>     Connect via a relay peer
-  /tunnel <addr>    Create TCP tunnel (requires tunnel server)
+  /tunnel <addr>    Create TCP tunnel
   /disconnect       Disconnect all peers
   /peers            List known peers
-  /org create       Create an organization
   /channel create   Create a channel
   /dm <peer>        Open direct message
   /profile          Show your profile
   /quit             Quit
 
 Keys:
-  Tab        Cycle: input ─ channels ─ orgs
-  Arrows     Navigate orgs/channels (nav mode)
+  Tab        Cycle: input ─ channels ─ logs
+  Arrows     Navigate channels (nav mode)
   Enter      Send message / confirm
   ?          Toggle help
   P          Toggle peers
   Ctrl+C     Quit
 
 Internet:
-  /publicip         Show your public IP (for port forwarding)
+  /publicip         Show your public IP
   /tunnel <addr>    TCP tunnel via a public server
   /relay <addr>     libp2p relay (requires public server)`)
 }

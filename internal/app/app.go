@@ -35,7 +35,6 @@ type App struct {
 
 	identity   *storage.Identity
 	libp2pKey  libp2pCrypto.PrivKey
-	activeOrg  string
 	activeChan string
 }
 
@@ -189,6 +188,20 @@ func (a *App) SetDisplayName(name string) {
 	_ = a.Store.SaveIdentity(a.identity)
 }
 
+func (a *App) GetPeerDisplayName(peerID string) string {
+	if a.identity != nil && a.identity.PeerID == peerID {
+		return a.identity.DisplayName
+	}
+	p, err := a.peerManager.GetPeer(peerID)
+	if err != nil || p == nil {
+		if len(peerID) > 12 {
+			return peerID[:12]
+		}
+		return peerID
+	}
+	return p.DisplayName
+}
+
 func (a *App) SendMessage(channelID, content, contentType string) error {
 	msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
 	cipher := crypto.NewCipher(make([]byte, 32))
@@ -198,15 +211,15 @@ func (a *App) SendMessage(channelID, content, contentType string) error {
 	}
 
 	msg := &storage.Message{
-		MessageID:    msgID,
-		ChannelID:    channelID,
-		SenderPeerID: a.PeerID(),
-		Content:      content,
-		ContentType:  contentType,
-		Encrypted:    env.EncryptedData != nil,
+		MessageID:     msgID,
+		ChannelID:     channelID,
+		SenderPeerID:  a.PeerID(),
+		Content:       content,
+		ContentType:   contentType,
+		Encrypted:     env.EncryptedData != nil,
 		DeliveryState: "sent",
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
 	}
 
 	if err := a.Store.SaveMessage(msg); err != nil {
@@ -215,13 +228,13 @@ func (a *App) SendMessage(channelID, content, contentType string) error {
 
 	if a.Node != nil {
 		a.Node.Broadcast(&network.Message{
-			Type:         "message",
-			SenderID:     a.PeerID(),
-			ChannelID:    channelID,
-			MessageID:    msgID,
-			Content:      content,
-			ContentType:  contentType,
-			Timestamp:    time.Now().UnixMilli(),
+			Type:        "message",
+			SenderID:    a.PeerID(),
+			ChannelID:   channelID,
+			MessageID:   msgID,
+			Content:     content,
+			ContentType: contentType,
+			Timestamp:   time.Now().UnixMilli(),
 		})
 	}
 
@@ -255,34 +268,34 @@ func (a *App) ListPeers() ([]*storage.Peer, error) {
 		return nil, err
 	}
 
-	connected := make(map[string]bool)
 	if a.Node != nil {
+		connected := make(map[string]bool)
 		for _, p := range a.Node.ConnectedPeers() {
 			connected[p.String()] = true
 		}
-	}
 
-	for _, p := range peers {
-		if connected[p.PeerID] {
-			p.Status = "online"
-		}
-	}
-
-	for _, pid := range a.Node.ConnectedPeers() {
-		pidStr := pid.String()
-		found := false
 		for _, p := range peers {
-			if p.PeerID == pidStr {
-				found = true
-				break
+			if connected[p.PeerID] {
+				p.Status = "online"
 			}
 		}
-		if !found {
-			peers = append(peers, &storage.Peer{
-				PeerID:      pidStr,
-				DisplayName: pidStr,
-				Status:      "online",
-			})
+
+		for _, pid := range a.Node.ConnectedPeers() {
+			pidStr := pid.String()
+			found := false
+			for _, p := range peers {
+				if p.PeerID == pidStr {
+					found = true
+					break
+				}
+			}
+			if !found {
+				peers = append(peers, &storage.Peer{
+					PeerID:      pidStr,
+					DisplayName: pidStr,
+					Status:      "online",
+				})
+			}
 		}
 	}
 
@@ -297,39 +310,26 @@ func (a *App) ConnectedCount() int {
 }
 
 func (a *App) CreateOrg(name, description string) (*storage.Organization, error) {
-	org, err := a.orgManager.CreateOrganization(name, description, a.PeerID())
-	if err != nil {
-		return nil, err
-	}
-	if a.Node != nil {
-		a.Node.Broadcast(&network.Message{
-			Type:      "sync_org",
-			SenderID:  a.PeerID(),
-			OrgID:     org.OrgID,
-			Content:   name,
-			Timestamp: time.Now().UnixMilli(),
-		})
-	}
-	return org, nil
+	return a.orgManager.CreateOrganization(name, description, a.PeerID())
 }
 
 func (a *App) ListOrgs() ([]*storage.Organization, error) {
 	return a.Store.ListOrganizations()
 }
 
-func (a *App) CreateChannel(orgID, name, channelType, description string) (*storage.Channel, error) {
-	ch, err := a.channelManager.CreateChannel(orgID, name, channelType, "", description)
+func (a *App) CreateChannel(name, channelType string) (*storage.Channel, error) {
+	ch, err := a.channelManager.CreateChannel("", name, channelType, "", "")
 	if err != nil {
 		return nil, err
 	}
 	if a.Node != nil {
 		a.Node.Broadcast(&network.Message{
-			Type:      "sync_channel",
-			SenderID:  a.PeerID(),
-			OrgID:     orgID,
-			ChannelID: ch.ChannelID,
-			Content:   name,
-			Timestamp: time.Now().UnixMilli(),
+			Type:        "sync_channel",
+			SenderID:    a.PeerID(),
+			ChannelID:   ch.ChannelID,
+			Content:     name,
+			ChannelType: channelType,
+			Timestamp:   time.Now().UnixMilli(),
 		})
 	}
 	return ch, nil
@@ -339,21 +339,8 @@ func (a *App) DeleteChannel(channelID string) error {
 	return a.Store.ArchiveChannel(channelID)
 }
 
-func (a *App) ListChannels(orgID string) ([]*storage.Channel, error) {
-	var channels []*storage.Channel
-	if orgID != "" {
-		orgChs, err := a.channelManager.ListChannels(orgID)
-		if err != nil {
-			return nil, err
-		}
-		channels = orgChs
-	}
-	dmChs, err := a.channelManager.ListChannels("")
-	if err != nil {
-		return nil, err
-	}
-	channels = append(channels, dmChs...)
-	return channels, nil
+func (a *App) ListChannels() ([]*storage.Channel, error) {
+	return a.channelManager.ListChannels("")
 }
 
 func (a *App) ListMessages(channelID string, limit, offset int) ([]*storage.Message, error) {

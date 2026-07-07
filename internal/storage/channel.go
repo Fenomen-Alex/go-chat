@@ -49,6 +49,22 @@ func (s *Store) SaveChannel(ch *Channel) error {
 	return nil
 }
 
+func (s *Store) GetChannelByName(name string) (*Channel, error) {
+	ch := &Channel{}
+	err := s.db.QueryRow(`SELECT id, channel_id, org_id, name, topic, description, channel_type, category, parent_category, read_only, archived, muted, favorite, pinned, slow_mode, retention, attachment_limit, emoji_reactions, created_at, updated_at
+		FROM channels WHERE name=? LIMIT 1`, name).Scan(
+		&ch.ID, &ch.ChannelID, &ch.OrgID, &ch.Name, &ch.Topic, &ch.Description, &ch.ChannelType,
+		&ch.Category, &ch.ParentCategory, &ch.ReadOnly, &ch.Archived, &ch.Muted, &ch.Favorite, &ch.Pinned,
+		&ch.SlowMode, &ch.Retention, &ch.AttachmentLimit, &ch.EmojiReactions, &ch.CreatedAt, &ch.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get channel by name: %w", err)
+	}
+	return ch, nil
+}
+
 func (s *Store) GetChannel(channelID string) (*Channel, error) {
 	ch := &Channel{}
 	err := s.db.QueryRow(`SELECT id, channel_id, org_id, name, topic, description, channel_type, category, parent_category, read_only, archived, muted, favorite, pinned, slow_mode, retention, attachment_limit, emoji_reactions, created_at, updated_at

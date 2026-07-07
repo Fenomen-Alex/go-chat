@@ -16,6 +16,14 @@ func NewManager(store *storage.Store) *Manager {
 }
 
 func (m *Manager) CreateChannel(orgID, name, channelType, category, description string) (*storage.Channel, error) {
+	existing, err := m.store.GetChannelByName(name)
+	if err != nil {
+		return nil, fmt.Errorf("check existing channel: %w", err)
+	}
+	if existing != nil {
+		return nil, fmt.Errorf("channel '%s' already exists", name)
+	}
+
 	channelID := fmt.Sprintf("ch_%d", time.Now().UnixNano())
 
 	ch := &storage.Channel{

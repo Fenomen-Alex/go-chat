@@ -29,6 +29,12 @@ var levelNames = map[Level]string{
 	LevelError: "ERROR",
 }
 
+type LogEntry struct {
+	Time    time.Time
+	Level   string
+	Message string
+}
+
 type Logger struct {
 	mu       sync.Mutex
 	level    Level
@@ -37,12 +43,14 @@ type Logger struct {
 	rotate   bool
 	dir      string
 	basename string
+	uiBuf    []LogEntry
 }
 
 func New(level string, path string, rotate bool) (*Logger, error) {
 	l := &Logger{
 		level:  parseLevel(level),
 		rotate: rotate,
+		uiBuf:  make([]LogEntry, 0, 100),
 	}
 
 	writers := []io.Writer{os.Stderr}
@@ -89,6 +97,24 @@ func (l *Logger) log(level Level, format string, args ...any) {
 
 	msg := fmt.Sprintf(format, args...)
 	l.logger.Output(3, fmt.Sprintf("[%s] %s", levelNames[level], msg))
+
+	entry := LogEntry{
+		Time:    time.Now(),
+		Level:   levelNames[level],
+		Message: msg,
+	}
+	if len(l.uiBuf) >= 100 {
+		l.uiBuf = l.uiBuf[1:]
+	}
+	l.uiBuf = append(l.uiBuf, entry)
+}
+
+func (l *Logger) UIMessages() []LogEntry {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]LogEntry, len(l.uiBuf))
+	copy(out, l.uiBuf)
+	return out
 }
 
 func (l *Logger) Trace(format string, args ...any) { l.log(LevelTrace, format, args...) }
