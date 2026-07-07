@@ -1,6 +1,10 @@
 package network
 
 import (
+	"time"
+
+	"go-chat/internal/storage"
+
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -20,4 +24,15 @@ func (m *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
 		return
 	}
 	m.node.Logger.Info("mDNS connected to: %s", pi.ID.String())
+
+	if m.node.Store != nil {
+		_ = m.node.Store.SavePeer(&storage.Peer{
+			PeerID:      pi.ID.String(),
+			DisplayName: pi.ID.String(),
+			Status:      "online",
+			LastSeen:    time.Now().UTC(),
+		})
+	}
+
+	_ = m.node.SyncWithPeer(ctx, pi.ID)
 }

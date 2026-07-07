@@ -2,16 +2,16 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"strings"
+	"time"
 
 	"go-chat/internal/app"
 	"go-chat/internal/crypto"
 	"go-chat/internal/storage"
 	"go-chat/internal/tunnel"
-
-	"io"
-	"net/http"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -80,18 +80,34 @@ func NewModel(a *app.App) *Model {
 	}
 }
 
+type tickMsg time.Time
+
 func (m *Model) Init() tea.Cmd {
 	m.loadOrgs()
 	if len(m.orgList) > 0 {
 		m.loadChannels()
 	}
-	return textinput.Blink
+	m.loadPeers()
+	return tea.Batch(textinput.Blink, m.nextTick())
+}
+
+func (m *Model) nextTick() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tickMsg:
+		if m.inputMode && len(m.channelList) > 0 {
+			m.loadMessages()
+		}
+		m.loadPeers()
+		return m, m.nextTick()
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -459,17 +475,24 @@ func (m *Model) loadOrgs() {
 
 func (m *Model) loadChannels() {
 	if len(m.orgList) == 0 {
-		m.channelList = nil
-		return
+		channels, err := m.app.ListChannels("")
+		if err != nil {
+			m.addStatus(fmt.Sprintf("Error loading channels: %v", err))
+			return
+		}
+		m.channelList = channels
+	} else {
+		orgID := m.orgList[m.selectedOrg].OrgID
+		channels, err := m.app.ListChannels(orgID)
+		if err != nil {
+			m.addStatus(fmt.Sprintf("Error loading channels: %v", err))
+			return
+		}
+		m.channelList = channels
 	}
-	orgID := m.orgList[m.selectedOrg].OrgID
-	channels, err := m.app.ListChannels(orgID)
-	if err != nil {
-		m.addStatus(fmt.Sprintf("Error loading channels: %v", err))
-		return
+	if len(m.channelList) > 0 {
+		m.selectedChan = 0
 	}
-	m.channelList = channels
-	m.selectedChan = 0
 	m.loadMessages()
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"go-chat/internal/storage"
@@ -26,6 +27,15 @@ func (h *StreamHandler) Handle(s network.Stream) {
 	peerID := s.Conn().RemotePeer().String()
 	r := bufio.NewReader(s)
 
+	if h.node.Store != nil {
+		_ = h.node.Store.SavePeer(&storage.Peer{
+			PeerID:      peerID,
+			DisplayName: peerID,
+			Status:      "online",
+			LastSeen:    time.Now().UTC(),
+		})
+	}
+
 	for {
 		data, err := r.ReadBytes('\n')
 		if err != nil {
@@ -41,38 +51,95 @@ func (h *StreamHandler) Handle(s network.Stream) {
 			continue
 		}
 
-		h.handleMessage(&msg)
+		h.handleMessage(&msg, s)
 	}
 }
 
-func (h *StreamHandler) handleMessage(msg *Message) {
+func (h *StreamHandler) handleMessage(msg *Message, s network.Stream) {
 	h.node.Logger.Info("received %s from %s", msg.Type, msg.SenderID)
 
 	switch msg.Type {
-	case "message":
-		h.handleSyncMessage(msg)
+	case "sync_request":
+		h.sendFullState(s)
 	case "sync_org":
-		h.handleSyncOrg(msg)
+		if h.node.Store != nil {
+			h.handleSyncOrg(msg)
+		}
 	case "sync_channel":
-		h.handleSyncChannel(msg)
+		if h.node.Store != nil {
+			h.handleSyncChannel(msg, s)
+		}
+	case "message":
+		if h.node.Store != nil {
+			h.handleSyncMessage(msg)
+		}
 	default:
 		h.node.Logger.Debug("unknown message type: %s", msg.Type)
 	}
 }
 
+func (h *StreamHandler) sendFullState(s network.Stream) {
+	remotePeerID := h.remotePeerID(s)
+
+	orgs, err := h.node.Store.ListOrganizations()
+	if err == nil {
+		for _, org := range orgs {
+			_ = h.SendMessage(s, &Message{
+				Type:      "sync_org",
+				SenderID:  h.node.Host.ID().String(),
+				OrgID:     org.OrgID,
+				Content:   org.Name,
+				Timestamp: org.CreatedAt.UnixMilli(),
+			})
+		}
+	}
+
+	channels, err := h.node.Store.ListAllChannels()
+	if err == nil {
+		for _, ch := range channels {
+			if strings.HasPrefix(ch.ChannelID, "dm_") && !strings.Contains(ch.ChannelID, remotePeerID) {
+				continue
+			}
+			_ = h.SendMessage(s, &Message{
+				Type:        "sync_channel",
+				SenderID:    h.node.Host.ID().String(),
+				OrgID:       ch.OrgID,
+				ChannelID:   ch.ChannelID,
+				Content:     ch.Name,
+				ChannelType: ch.ChannelType,
+				Timestamp:   ch.CreatedAt.UnixMilli(),
+			})
+		}
+	}
+
+	allMsgs, err := h.node.Store.ListAllMessages(50)
+	if err == nil {
+		for _, m := range allMsgs {
+			_ = h.SendMessage(s, &Message{
+				Type:       "message",
+				SenderID:   m.SenderPeerID,
+				ChannelID:  m.ChannelID,
+				MessageID:  m.MessageID,
+				Content:    m.Content,
+				Timestamp:  m.CreatedAt.UnixMilli(),
+			})
+		}
+	}
+}
+
 func (h *StreamHandler) handleSyncMessage(msg *Message) {
-	if h.node.Store == nil {
+	if msg.MessageID == "" || msg.ChannelID == "" {
 		return
 	}
 	storeMsg := &storage.Message{
-		MessageID:    msg.MessageID,
-		ChannelID:    msg.ChannelID,
-		SenderPeerID: msg.SenderID,
-		Content:      msg.Content,
-		ContentType:  msg.ContentType,
+		MessageID:     msg.MessageID,
+		ChannelID:     msg.ChannelID,
+		SenderPeerID:  msg.SenderID,
+		Content:       msg.Content,
+		ContentType:   msg.ContentType,
 		DeliveryState: "received",
-		CreatedAt:    time.UnixMilli(msg.Timestamp).UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		CreatedAt:     time.UnixMilli(msg.Timestamp).UTC(),
+		UpdatedAt:     time.Now().UTC(),
 	}
 	if err := h.node.Store.SaveMessage(storeMsg); err != nil {
 		h.node.Logger.Warn("save synced message: %v", err)
@@ -80,7 +147,7 @@ func (h *StreamHandler) handleSyncMessage(msg *Message) {
 }
 
 func (h *StreamHandler) handleSyncOrg(msg *Message) {
-	if h.node.Store == nil {
+	if msg.OrgID == "" {
 		return
 	}
 	existing, _ := h.node.Store.GetOrganization(msg.OrgID)
@@ -88,20 +155,26 @@ func (h *StreamHandler) handleSyncOrg(msg *Message) {
 		return
 	}
 	org := &storage.Organization{
-		OrgID:     msg.OrgID,
-		Name:      msg.Content,
+		OrgID:       msg.OrgID,
+		Name:        msg.Content,
 		OwnerPeerID: msg.SenderID,
-		CreatedAt: time.UnixMilli(msg.Timestamp).UTC(),
-		UpdatedAt: time.Now().UTC(),
+		CreatedAt:   time.UnixMilli(msg.Timestamp).UTC(),
+		UpdatedAt:   time.Now().UTC(),
 	}
 	if err := h.node.Store.SaveOrganization(org); err != nil {
 		h.node.Logger.Warn("save synced org: %v", err)
 	}
 }
 
-func (h *StreamHandler) handleSyncChannel(msg *Message) {
-	if h.node.Store == nil {
+func (h *StreamHandler) handleSyncChannel(msg *Message, s network.Stream) {
+	if msg.ChannelID == "" {
 		return
+	}
+	if strings.HasPrefix(msg.ChannelID, "dm_") {
+		localPeerID := h.node.Host.ID().String()
+		if !strings.Contains(msg.ChannelID, localPeerID) {
+			return
+		}
 	}
 	existing, _ := h.node.Store.GetChannel(msg.ChannelID)
 	if existing != nil {
@@ -111,13 +184,20 @@ func (h *StreamHandler) handleSyncChannel(msg *Message) {
 		ChannelID:   msg.ChannelID,
 		OrgID:       msg.OrgID,
 		Name:        msg.Content,
-		ChannelType: "text",
+		ChannelType: msg.ChannelType,
 		CreatedAt:   time.UnixMilli(msg.Timestamp).UTC(),
 		UpdatedAt:   time.Now().UTC(),
+	}
+	if ch.ChannelType == "" {
+		ch.ChannelType = "text"
 	}
 	if err := h.node.Store.SaveChannel(ch); err != nil {
 		h.node.Logger.Warn("save synced channel: %v", err)
 	}
+}
+
+func (h *StreamHandler) remotePeerID(s network.Stream) string {
+	return s.Conn().RemotePeer().String()
 }
 
 func (h *StreamHandler) SendMessage(s network.Stream, msg *Message) error {
@@ -132,4 +212,19 @@ func (h *StreamHandler) SendMessage(s network.Stream, msg *Message) error {
 	}
 
 	return nil
+}
+
+func (h *StreamHandler) ReceiveMessages(s network.Stream) {
+	r := bufio.NewReader(s)
+	for {
+		data, err := r.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		h.handleMessage(&msg, s)
+	}
 }

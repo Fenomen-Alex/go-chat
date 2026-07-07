@@ -10,6 +10,7 @@ type Message struct {
 	MessageID    string `json:"message_id,omitempty"`
 	Content      string `json:"content,omitempty"`
 	ContentType  string `json:"content_type,omitempty"`
+	ChannelType  string `json:"channel_type,omitempty"`
 	ReplyTo      string `json:"reply_to,omitempty"`
 	Encrypted    bool   `json:"encrypted,omitempty"`
 	EncryptedData []byte `json:"encrypted_data,omitempty"`

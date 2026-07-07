@@ -82,6 +82,30 @@ func (s *Store) ListMessages(channelID string, limit, offset int) ([]*Message, e
 	return msgs, rows.Err()
 }
 
+func (s *Store) ListAllMessages(limit int) ([]*Message, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at
+		FROM messages WHERE deleted=0 ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list all messages: %w", err)
+	}
+	defer rows.Close()
+
+	var msgs []*Message
+	for rows.Next() {
+		msg := &Message{}
+		if err := rows.Scan(&msg.ID, &msg.MessageID, &msg.ChannelID, &msg.SenderPeerID, &msg.Content, &msg.ContentType,
+			&msg.Encrypted, &msg.ReplyTo, &msg.Edited, &msg.Deleted, &msg.Pinned, &msg.DeliveryState,
+			&msg.CreatedAt, &msg.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs, rows.Err()
+}
+
 func (s *Store) DeleteMessage(messageID string) error {
 	_, err := s.db.Exec(`UPDATE messages SET deleted=1, updated_at=? WHERE message_id=?`,
 		time.Now().UTC(), messageID)

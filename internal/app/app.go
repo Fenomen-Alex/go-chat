@@ -232,7 +232,12 @@ func (a *App) Connect(addrStr string) error {
 	if a.Node == nil {
 		return fmt.Errorf("network not initialized")
 	}
-	return a.Node.Connect(context.Background(), addrStr)
+	peerID, err := a.Node.Connect(context.Background(), addrStr)
+	if err != nil {
+		return err
+	}
+	_ = a.Node.SyncWithPeer(context.Background(), peerID)
+	return nil
 }
 
 func (a *App) DisconnectAll() {
@@ -245,7 +250,50 @@ func (a *App) DisconnectAll() {
 }
 
 func (a *App) ListPeers() ([]*storage.Peer, error) {
-	return a.peerManager.ListPeers()
+	peers, err := a.peerManager.ListPeers()
+	if err != nil {
+		return nil, err
+	}
+
+	connected := make(map[string]bool)
+	if a.Node != nil {
+		for _, p := range a.Node.ConnectedPeers() {
+			connected[p.String()] = true
+		}
+	}
+
+	for _, p := range peers {
+		if connected[p.PeerID] {
+			p.Status = "online"
+		}
+	}
+
+	for _, pid := range a.Node.ConnectedPeers() {
+		pidStr := pid.String()
+		found := false
+		for _, p := range peers {
+			if p.PeerID == pidStr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			peers = append(peers, &storage.Peer{
+				PeerID:      pidStr,
+				DisplayName: pidStr,
+				Status:      "online",
+			})
+		}
+	}
+
+	return peers, nil
+}
+
+func (a *App) ConnectedCount() int {
+	if a.Node == nil {
+		return 0
+	}
+	return a.Node.ConnectedCount()
 }
 
 func (a *App) CreateOrg(name, description string) (*storage.Organization, error) {
@@ -292,7 +340,20 @@ func (a *App) DeleteChannel(channelID string) error {
 }
 
 func (a *App) ListChannels(orgID string) ([]*storage.Channel, error) {
-	return a.channelManager.ListChannels(orgID)
+	var channels []*storage.Channel
+	if orgID != "" {
+		orgChs, err := a.channelManager.ListChannels(orgID)
+		if err != nil {
+			return nil, err
+		}
+		channels = orgChs
+	}
+	dmChs, err := a.channelManager.ListChannels("")
+	if err != nil {
+		return nil, err
+	}
+	channels = append(channels, dmChs...)
+	return channels, nil
 }
 
 func (a *App) ListMessages(channelID string, limit, offset int) ([]*storage.Message, error) {
@@ -300,9 +361,10 @@ func (a *App) ListMessages(channelID string, limit, offset int) ([]*storage.Mess
 }
 
 func (a *App) OpenDM(peerID string) error {
-	channelID := fmt.Sprintf("dm_%s_%s", a.PeerID(), peerID)
-	if channelID[0] > channelID[len(channelID)-1] {
-		channelID = fmt.Sprintf("dm_%s_%s", peerID, a.PeerID())
+	myID := a.PeerID()
+	channelID := fmt.Sprintf("dm_%s_%s", myID, peerID)
+	if myID > peerID {
+		channelID = fmt.Sprintf("dm_%s_%s", peerID, myID)
 	}
 
 	ch, err := a.channelManager.GetChannel(channelID)
@@ -310,9 +372,16 @@ func (a *App) OpenDM(peerID string) error {
 		return err
 	}
 	if ch == nil {
-		_, err = a.channelManager.CreateChannel("", fmt.Sprintf("DM-%s", peerID[:8]), "dm", "", "")
-		if err != nil {
-			return err
+		now := time.Now().UTC()
+		ch = &storage.Channel{
+			ChannelID:   channelID,
+			Name:        fmt.Sprintf("DM-%s", peerID[:8]),
+			ChannelType: "dm",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := a.Store.SaveChannel(ch); err != nil {
+			return fmt.Errorf("save dm channel: %w", err)
 		}
 	}
 

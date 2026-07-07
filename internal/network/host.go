@@ -1,8 +1,11 @@
 package network
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go-chat/internal/config"
@@ -96,7 +99,7 @@ func NewNode(privKey crypto.PrivKey, cfg *config.NetworkConfig, log *logging.Log
 			continue
 		}
 		go func(addr string) {
-			if err := node.Connect(ctx, addr); err != nil {
+			if _, err := node.Connect(ctx, addr); err != nil {
 				log.Warn("relay connect %s: %v", addr, err)
 				return
 			}
@@ -134,23 +137,23 @@ func (n *Node) handleStream(s network.Stream) {
 	NewStreamHandler(n).Handle(s)
 }
 
-func (n *Node) Connect(ctx context.Context, addrStr string) error {
+func (n *Node) Connect(ctx context.Context, addrStr string) (peer.ID, error) {
 	addr, err := multiaddr.NewMultiaddr(addrStr)
 	if err != nil {
-		return fmt.Errorf("parse multiaddr: %w", err)
+		return "", fmt.Errorf("parse multiaddr: %w", err)
 	}
 
 	pi, err := peer.AddrInfoFromP2pAddr(addr)
 	if err != nil {
-		return fmt.Errorf("addr info: %w", err)
+		return "", fmt.Errorf("addr info: %w", err)
 	}
 
 	if err := n.Host.Connect(ctx, *pi); err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return "", fmt.Errorf("connect: %w", err)
 	}
 
 	n.Logger.Info("connected to: %s", pi.ID.String())
-	return nil
+	return pi.ID, nil
 }
 
 func (n *Node) Disconnect(peerID peer.ID) error {
@@ -206,6 +209,100 @@ func (n *Node) Broadcast(msg *Message) {
 		NewStreamHandler(n).SendMessage(s, msg)
 		s.Close()
 	}
+}
+
+func (n *Node) ConnectedPeers() []peer.ID {
+	return n.Host.Network().Peers()
+}
+
+func (n *Node) ConnectedCount() int {
+	return len(n.Host.Network().Peers())
+}
+
+func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
+	s, err := n.Host.NewStream(ctx, peerID, ProtocolID)
+	if err != nil {
+		return fmt.Errorf("open sync stream: %w", err)
+	}
+	defer s.Close()
+
+	handler := NewStreamHandler(n)
+
+	handler.SendMessage(s, &Message{
+		Type:     "sync_request",
+		SenderID: n.Host.ID().String(),
+	})
+
+	if n.Store != nil {
+		orgs, _ := n.Store.ListOrganizations()
+		for _, org := range orgs {
+			handler.SendMessage(s, &Message{
+				Type:      "sync_org",
+				SenderID:  n.Host.ID().String(),
+				OrgID:     org.OrgID,
+				Content:   org.Name,
+				Timestamp: org.CreatedAt.UnixMilli(),
+			})
+		}
+
+		channels, _ := n.Store.ListAllChannels()
+		for _, ch := range channels {
+			if strings.HasPrefix(ch.ChannelID, "dm_") && !strings.Contains(ch.ChannelID, peerID.String()) {
+				continue
+			}
+			handler.SendMessage(s, &Message{
+				Type:        "sync_channel",
+				SenderID:    n.Host.ID().String(),
+				OrgID:       ch.OrgID,
+				ChannelID:   ch.ChannelID,
+				Content:     ch.Name,
+				ChannelType: ch.ChannelType,
+				Timestamp:   ch.CreatedAt.UnixMilli(),
+			})
+		}
+
+		msgs, _ := n.Store.ListAllMessages(50)
+		for _, msg := range msgs {
+			handler.SendMessage(s, &Message{
+				Type:       "message",
+				SenderID:   msg.SenderPeerID,
+				ChannelID:  msg.ChannelID,
+				MessageID:  msg.MessageID,
+				Content:    msg.Content,
+				Timestamp:  msg.CreatedAt.UnixMilli(),
+			})
+		}
+	}
+
+	r := bufio.NewReader(s)
+	for {
+		data, err := r.ReadBytes('\n')
+		if err != nil {
+			break
+		}
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case "sync_org":
+			if n.Store != nil {
+				handler.handleSyncOrg(&msg)
+			}
+		case "sync_channel":
+			if n.Store != nil {
+				handler.handleSyncChannel(&msg, s)
+			}
+		case "message":
+			if n.Store != nil {
+				handler.handleSyncMessage(&msg)
+			}
+		}
+	}
+
+	n.Logger.Info("sync complete with %s", peerID.String())
+	return nil
 }
 
 func (n *Node) ReconnectWithBackoff(ctx context.Context, pi peer.AddrInfo) error {
