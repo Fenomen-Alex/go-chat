@@ -91,9 +91,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tickMsg:
-		if m.inputMode && len(m.channelList) > 0 {
-			m.loadMessages()
-		}
+		m.loadChannels()
 		m.loadPeers()
 		m.loadLogs()
 		return m, m.nextTick()
