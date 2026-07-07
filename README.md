@@ -39,6 +39,13 @@
 4. **Right-click** `chat.app` → **Open** (first time only — macOS security)
 5. The chat opens in Terminal — ready to use
 
+> **Troubleshooting:** If you downloaded the standalone binary instead of the `.app` bundle, macOS may block it. Run these commands in Terminal:
+> ```bash
+> chmod +x chat-darwin-amd64
+> xattr -d com.apple.quarantine chat-darwin-amd64
+> ./chat-darwin-amd64
+> ```
+
 ### Windows
 
 1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
