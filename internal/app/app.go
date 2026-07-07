@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"go-chat/internal/channel"
@@ -201,6 +202,12 @@ func (a *App) GetPeerDisplayName(peerID string) string {
 		}
 		return peerID
 	}
+	if p.DisplayName == "" || p.DisplayName == "me" || strings.HasPrefix(p.DisplayName, "me_") {
+		if len(peerID) > 12 {
+			return peerID[:12]
+		}
+		return peerID
+	}
 	return p.DisplayName
 }
 
@@ -377,6 +384,34 @@ func (a *App) OpenDM(peerID string) error {
 
 	a.activeChan = channelID
 	return nil
+}
+
+func (a *App) IsDefaultName() bool {
+	if a.identity == nil {
+		return true
+	}
+	return strings.HasPrefix(a.identity.DisplayName, "user-")
+}
+
+func (a *App) SaveConnection(addr string) {
+	conns, _ := a.Store.ListConnections()
+	for _, c := range conns {
+		if c.Address == addr {
+			c.LastConnectedAt = time.Now().UTC()
+			_ = a.Store.SaveConnection(c)
+			return
+		}
+	}
+	now := time.Now().UTC()
+	_ = a.Store.SaveConnection(&storage.Connection{
+		Address:         addr,
+		LastConnectedAt: now,
+		CreatedAt:       now,
+	})
+}
+
+func (a *App) ListConnections() ([]*storage.Connection, error) {
+	return a.Store.ListConnections()
 }
 
 func (a *App) Close() error {

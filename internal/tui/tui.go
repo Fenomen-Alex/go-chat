@@ -52,6 +52,8 @@ type Model struct {
 
 	logPanelFocused bool
 
+	pendingConnect string
+
 	err          error
 }
 
@@ -202,6 +204,31 @@ func (m *Model) handleInput() tea.Cmd {
 		return nil
 	}
 
+	if m.pendingConnect != "" {
+		addr := m.pendingConnect
+		m.pendingConnect = ""
+		m.input.Placeholder = "Type a message or /help..."
+		if strings.HasPrefix(text, "/") {
+			return m.handleCommand(text)
+		}
+		name := strings.TrimSpace(text)
+		if name == "" || name == "me" || strings.HasPrefix(name, "me_") {
+			m.addStatus("Invalid or reserved name")
+			return nil
+		}
+		m.app.SetDisplayName(name)
+		m.addStatus(fmt.Sprintf("Name set to '%s', connecting to %s...", name, addr))
+		if err := m.app.Connect(addr); err != nil {
+			m.addStatus(fmt.Sprintf("Connect error: %v", err))
+			return nil
+		}
+		m.app.SaveConnection(addr)
+		m.addStatus(fmt.Sprintf("Connected to %s", addr))
+		m.loadChannels()
+		m.loadPeers()
+		return nil
+	}
+
 	if m.showHelp || m.showPeers {
 		m.showHelp = false
 		m.showPeers = false
@@ -245,14 +272,39 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 
 	case "/connect":
 		if len(parts) < 2 {
-			m.addStatus("Usage: /connect <multiaddr>")
+			m.addStatus("Usage: /connect <multiaddr> | /connect <index>  (saved connections)")
 			return nil
 		}
-		if err := m.app.Connect(parts[1]); err != nil {
+		arg := parts[1]
+		var idx int
+		if _, err := fmt.Sscanf(arg, "%d", &idx); err == nil {
+			conns, err := m.app.ListConnections()
+			if err != nil {
+				m.addStatus(fmt.Sprintf("Error: %v", err))
+				return nil
+			}
+			if idx < 1 || idx > len(conns) {
+				m.addStatus("Invalid connection index. Use /connections to list.")
+				return nil
+			}
+			arg = conns[idx-1].Address
+		}
+		if m.app.IsDefaultName() {
+			m.pendingConnect = arg
+			m.addStatus(fmt.Sprintf("Set your display name to connect to %s", arg))
+			m.input.SetValue("")
+			m.input.Placeholder = "Enter your display name..."
+			m.inputMode = true
+			return nil
+		}
+		if err := m.app.Connect(arg); err != nil {
 			m.addStatus(fmt.Sprintf("Connect error: %v", err))
 			return nil
 		}
-		m.addStatus(fmt.Sprintf("Connected to %s", parts[1]))
+		m.app.SaveConnection(arg)
+		m.addStatus(fmt.Sprintf("Connected to %s", arg))
+		m.loadChannels()
+		m.loadPeers()
 
 	case "/disconnect":
 		m.app.DisconnectAll()
@@ -405,6 +457,41 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 				m.addStatus(fmt.Sprintf("Public IP: %s", ip))
 			}
 		}()
+
+	case "/connections":
+		conns, err := m.app.ListConnections()
+		if err != nil {
+			m.addStatus(fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+		if len(conns) == 0 {
+			m.addStatus("No saved connections. Use /connect to connect to a peer.")
+			return nil
+		}
+		m.showHelp = false
+		m.showPeers = false
+		lines := []string{"Saved connections:"}
+		for i, c := range conns {
+			addr := c.Address
+			if len(addr) > 50 {
+				addr = addr[:50] + "..."
+			}
+			nick := c.Nickname
+			if nick == "" {
+				nick = "-"
+			}
+			lines = append(lines, fmt.Sprintf("  %d. %s  (%s)", i+1, addr, nick))
+		}
+		lines = append(lines, "Reconnect: /connect <index>")
+		for _, line := range lines {
+			m.messages = append(m.messages, MessageItem{
+				Sender:    "● system",
+				Content:   line,
+				Timestamp: "now",
+			})
+		}
+		m.chatView.SetContent(m.renderMessages())
+		m.chatView.GotoBottom()
 
 	case "/quit":
 		return tea.Quit
@@ -597,7 +684,7 @@ func (m *Model) renderMessages() string {
 		chatWidth = 40
 	}
 	for _, msg := range m.messages {
-		senderStyle := SenderStyle
+		senderStyle := lipgloss.NewStyle().Bold(true).Foreground(senderColor(msg.Sender))
 		if msg.Sender == m.app.Identity().DisplayName {
 			senderStyle = SelfSenderStyle
 		}
@@ -653,6 +740,8 @@ func (m Model) helpView() string {
   /myaddr           Show your local addresses
   /publicip         Look up your public IP
   /connect <addr>   Connect to a peer directly
+  /connect <index>  Reconnect to a saved connection
+  /connections      List saved connections
   /relay <addr>     Connect via a relay peer
   /tunnel <addr>    Create TCP tunnel
   /disconnect       Disconnect all peers

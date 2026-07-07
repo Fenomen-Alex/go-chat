@@ -52,9 +52,16 @@ var (
 
 	ChannelItemStyle = lipgloss.NewStyle().Padding(0, 1)
 
-	SenderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#57F287"))
+	senderPalette = []string{
+		"#57F287", // green
+		"#00E5FF", // cyan
+		"#FF73FA", // pink
+		"#FFA657", // orange
+		"#5865F2", // blue
+		"#B077FF", // purple
+		"#ED4245", // red
+		"#00FFAA", // teal
+	}
 
 	SelfSenderStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -101,3 +108,14 @@ var (
 
 	DocStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
+
+func senderColor(s string) lipgloss.Color {
+	h := 0
+	for _, c := range s {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return lipgloss.Color(senderPalette[h%len(senderPalette)])
+}

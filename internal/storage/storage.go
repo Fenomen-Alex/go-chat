@@ -201,6 +201,13 @@ func (s *Store) migrate() error {
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			expires_at TIMESTAMP NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS connections (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			address TEXT NOT NULL,
+			nickname TEXT NOT NULL DEFAULT '',
+			last_connected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_peer_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)`,

@@ -28,12 +28,15 @@ func (h *StreamHandler) Handle(s network.Stream) {
 	r := bufio.NewReader(s)
 
 	if h.node.Store != nil {
-		_ = h.node.Store.SavePeer(&storage.Peer{
-			PeerID:      peerID,
-			DisplayName: peerID,
-			Status:      "online",
-			LastSeen:    time.Now().UTC(),
-		})
+		existing, _ := h.node.Store.GetPeer(peerID)
+		if existing == nil {
+			_ = h.node.Store.SavePeer(&storage.Peer{
+				PeerID:      peerID,
+				DisplayName: peerID,
+				Status:      "online",
+				LastSeen:    time.Now().UTC(),
+			})
+		}
 	}
 
 	for {
@@ -131,6 +134,9 @@ func (h *StreamHandler) sendFullState(s network.Stream) {
 	allPeers, err := h.node.Store.ListPeers()
 	if err == nil {
 		for _, p := range allPeers {
+			if p.DisplayName == "" || p.DisplayName == p.PeerID || p.DisplayName == "me" || strings.HasPrefix(p.DisplayName, "me_") {
+				continue
+			}
 			_ = h.SendMessage(s, &Message{
 				Type:      "sync_peer",
 				SenderID:  p.PeerID,
@@ -140,10 +146,14 @@ func (h *StreamHandler) sendFullState(s network.Stream) {
 		}
 	}
 
+	myName := h.node.Host.ID().String()
+	if identity, _ := h.node.Store.GetIdentity(); identity != nil {
+		myName = identity.DisplayName
+	}
 	_ = h.SendMessage(s, &Message{
 		Type:      "sync_peer",
 		SenderID:  h.node.Host.ID().String(),
-		Content:   "me",
+		Content:   myName,
 		Timestamp: time.Now().UnixMilli(),
 	})
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -26,7 +25,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Println("go-chat v0.1.1")
+		fmt.Println("go-chat v0.1.2")
 		return
 	}
 
@@ -41,19 +40,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	id := a.Identity()
 	if *nameFlag != "" {
-		a.SetDisplayName(*nameFlag)
-	} else if strings.HasPrefix(id.DisplayName, "user-") {
-		fmt.Printf("Welcome! Enter your display name [%s]: ", id.DisplayName)
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			name := strings.TrimSpace(scanner.Text())
-			if name != "" {
-				a.SetDisplayName(name)
-			}
+		name := strings.TrimSpace(*nameFlag)
+		if name == "me" || strings.HasPrefix(name, "me_") {
+			fmt.Fprintf(os.Stderr, "Error: '%s' is a reserved name, choose another\n", name)
+			os.Exit(1)
 		}
-		fmt.Println()
+		a.SetDisplayName(name)
 	}
 
 	p := tea.NewProgram(

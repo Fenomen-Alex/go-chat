@@ -265,6 +265,9 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 
 		allPeers, _ := n.Store.ListPeers()
 		for _, p := range allPeers {
+			if p.DisplayName == "" || p.DisplayName == p.PeerID || p.DisplayName == "me" || strings.HasPrefix(p.DisplayName, "me_") {
+				continue
+			}
 			handler.SendMessage(s, &Message{
 				Type:      "sync_peer",
 				SenderID:  p.PeerID,
@@ -272,6 +275,17 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 				Timestamp: time.Now().UnixMilli(),
 			})
 		}
+
+		myName := n.Host.ID().String()
+		if identity, _ := n.Store.GetIdentity(); identity != nil {
+			myName = identity.DisplayName
+		}
+		handler.SendMessage(s, &Message{
+			Type:      "sync_peer",
+			SenderID:  n.Host.ID().String(),
+			Content:   myName,
+			Timestamp: time.Now().UnixMilli(),
+		})
 
 		msgs, _ := n.Store.ListAllMessages(50)
 		for _, msg := range msgs {
