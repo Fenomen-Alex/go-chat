@@ -34,12 +34,29 @@ type Node struct {
 func NewNode(privKey crypto.PrivKey, cfg *config.NetworkConfig, log *logging.Logger) (*Node, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	var staticRelays []peer.AddrInfo
+	for _, relayAddr := range cfg.RelayPeers {
+		if relayAddr == "" {
+			continue
+		}
+		addr, err := multiaddr.NewMultiaddr(relayAddr)
+		if err != nil {
+			log.Warn("invalid relay addr %s: %v", relayAddr, err)
+			continue
+		}
+		pi, err := peer.AddrInfoFromP2pAddr(addr)
+		if err != nil {
+			log.Warn("parse relay addr %s: %v", relayAddr, err)
+			continue
+		}
+		staticRelays = append(staticRelays, *pi)
+	}
+
 	opts := []libp2p.Option{
 		libp2p.Identity(privKey),
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", cfg.Port),
 		),
-		libp2p.EnableAutoRelay(),
 		libp2p.EnableHolePunching(),
 		libp2p.NATPortMap(),
 		libp2p.Transport(tcp.NewTCPTransport),
@@ -47,8 +64,8 @@ func NewNode(privKey crypto.PrivKey, cfg *config.NetworkConfig, log *logging.Log
 		libp2p.DefaultSecurity,
 	}
 
-	if cfg.Port == 0 {
-		opts = append(opts, libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"))
+	if len(staticRelays) > 0 {
+		opts = append(opts, libp2p.EnableAutoRelayWithStaticRelays(staticRelays...))
 	}
 
 	h, err := libp2p.New(opts...)
