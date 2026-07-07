@@ -134,38 +134,40 @@ Override with CLI flags:
 ```bash
 ./chat                           # Launch TUI
 ./chat --serve                   # Headless relay mode (no TUI)
+./chat --serve --tunnel :1234    # Relay + TCP tunnel server
 ./chat --config /path/to/config.yaml
 ./chat --version
 ```
 
 > **Public relay:** Run `chat --serve` on any public server to create a relay that your peers can use without port forwarding.
+> **TCP tunnel:** Add `--tunnel :1234` to also run a tunnel server — clients use `/tunnel <ip>:1234`.
 
 ## Usage
 
 ### TUI Layout
 
 ```
-+------------------+------------------+---------------------------+
-| Organizations    | Channels         | Chat                      |
-|                  |                  |                           |
-|  > My Org        |  > # general     |  12:30 alice: hello       |
-|                  |    # random      |  12:31 bob: hi            |
-|                  |                  |                           |
-+------------------+------------------+                           |
-| Status Bar       |                  |                           |
-+------------------+------------------+---------------------------+
-| Input / Command Line                                              |
-+------------------------------------------------------------------+
++----------+--------------------------+-----------------------------------+
+| Orgs     | Channels                 | Chat                              |
+|          |                          |                                   |
+|  My Org  |  # general               |  12:30 alice: hello               |
+|          |  # random                |  12:31 bob: hi                    |
+|          |                          |                                   |
++----------+--------------------------+                                   |
+| Status: My Org / #general                          [INPUT] Peers: 2 |
++----------+--------------------------+-----------------------------------+
+| Input / Command Line                                                  |
++----------------------------------------------------------------------+
 ```
 
 ### Navigation
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Toggle between input and navigation mode |
-| `Up` / `Down` | Navigate channels or scroll chat |
-| `Left` / `Right` | Switch organizations |
-| `Enter` | Send message (input mode) |
+| `Tab` | Cycle: input mode → channels → orgs |
+| `Up` / `Down` | Switch channels (nav mode) / scroll chat (input mode) |
+| `Left` / `Right` | Switch organizations (nav mode) |
+| `Enter` | Send message / switch to input mode |
 | `?` | Toggle help |
 | `P` | Toggle peers list |
 | `Ctrl+C` / `Ctrl+Q` | Quit |
@@ -178,6 +180,7 @@ Override with CLI flags:
 | `/myaddr` | Show your shareable multiaddress |
 | `/connect <multiaddr>` | Connect to a peer directly |
 | `/relay <multiaddr>` | Connect via a relay peer (no port forwarding) |
+| `/tunnel [addr]` | Create a TCP tunnel (default bore.pub:1234) |
 | `/disconnect` | Disconnect all peers |
 | `/peers` | List known peers |
 | `/org create <name>` | Create an organization |
@@ -269,6 +272,35 @@ If you can configure your router, run `/myaddr` and share the address. Forwards 
 2. In your router: forward that TCP port to your machine
 3. Share your public IP + port + peer ID
 4. Remote peer connects with `/connect <address>`
+
+---
+
+#### Option 4: TCP tunnel (no public IP or router config needed)
+
+go-chat has a built-in TCP tunnel client. It works with any public bore-compatible server.
+
+**Quick start (uses free `bore.pub`):**
+
+1. On your machine, inside go-chat:
+   ```
+   /tunnel
+   ```
+2. It prints a `/connect <address>` — share that with your peer
+3. Peer types:
+   ```
+   /connect /ip4/<tunnel_ip>/tcp/<port>/p2p/<peer_id>
+   ```
+
+**Run your own tunnel server** (on any public VPS, along with `--serve`):
+```bash
+chat --serve --tunnel :1234
+```
+Clients connect with:
+```
+/tunnel <server-ip>:1234
+```
+
+> **How it works:** The tunnel server assigns a public port and forwards TCP connections. Both sides connect *outbound* to the tunnel — no port forwarding needed.
 
 ---
 
