@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+      - run: go vet ./...
+      - run: go fmt ./...
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+      - run: go test ./...
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            ext: ""
+          - os: linux
+            arch: arm64
+            ext: ""
+          - os: darwin
+            arch: amd64
+            ext: ""
+          - os: darwin
+            arch: arm64
+            ext: ""
+          - os: windows
+            arch: amd64
+            ext: ".exe"
+          - os: windows
+            arch: arm64
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          BINARY="chat-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          go build -ldflags="-s -w" -o "build/$BINARY" ./cmd/chat
+
+      - name: Archive (Unix)
+        if: matrix.os != 'windows'
+        run: |
+          cd build
+          BINARY="chat-${{ matrix.os }}-${{ matrix.arch }}"
+          tar czf "${BINARY}.tar.gz" "${BINARY}"
+
+      - name: Archive (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          cd build
+          BINARY="chat-${{ matrix.os }}-${{ matrix.arch }}.exe"
+          zip "${BINARY}.zip" "${BINARY}"
+
+      - name: Checksum
+        run: |
+          cd build
+          sha256sum * > checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: build/
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [release]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          merge-multiple: true
+          path: build/
+
+      - name: Generate checksums
+        run: cd build && sha256sum * > checksums.txt
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*
+          generate_release_notes: true

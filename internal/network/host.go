@@ -138,6 +138,23 @@ func (n *Node) AddrInfo() *peer.AddrInfo {
 	}
 }
 
+func (n *Node) MyAddr() string {
+	id := n.Host.ID().String()
+	for _, addr := range n.Host.Addrs() {
+		return fmt.Sprintf("%s/p2p/%s", addr, id)
+	}
+	return ""
+}
+
+func (n *Node) AllAddrs() []string {
+	id := n.Host.ID().String()
+	var out []string
+	for _, addr := range n.Host.Addrs() {
+		out = append(out, fmt.Sprintf("%s/p2p/%s", addr, id))
+	}
+	return out
+}
+
 func (n *Node) Close() error {
 	n.Cancel()
 	if n.mdns != nil {

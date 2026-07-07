@@ -169,6 +169,20 @@ func (a *App) PeerID() string {
 	return a.identity.PeerID
 }
 
+func (a *App) MyAddr() string {
+	if a.Node == nil {
+		return ""
+	}
+	return a.Node.MyAddr()
+}
+
+func (a *App) AllAddrs() []string {
+	if a.Node == nil {
+		return nil
+	}
+	return a.Node.AllAddrs()
+}
+
 func (a *App) SendMessage(channelID, content, contentType string) error {
 	cipher := crypto.NewCipher(make([]byte, 32))
 	env, err := protocol.NewEncryptedMessage(a.PeerID(), channelID, fmt.Sprintf("msg_%d", time.Now().UnixNano()), content, contentType, "", cipher)

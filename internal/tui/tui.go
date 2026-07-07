@@ -60,7 +60,7 @@ func NewModel(a *app.App) *Model {
 		app:       a,
 		input:     ti,
 		inputMode: true,
-		statusText: "Connected | No organization selected",
+		statusText: fmt.Sprintf("PeerID: %s | /myaddr to see shareable address", a.PeerID()),
 	}
 }
 
@@ -284,6 +284,19 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		}
 		m.addStatus(fmt.Sprintf("DM with %s", peerID))
 
+	case "/myaddr":
+		peerID := m.app.PeerID()
+		allAddrs := m.app.AllAddrs()
+		m.addStatus(fmt.Sprintf("=== Peer ID: %s ===", peerID))
+		for _, addr := range allAddrs {
+			m.addStatus(fmt.Sprintf("  %s", addr))
+		}
+		m.addStatus("---")
+		if len(allAddrs) > 0 {
+			m.addStatus(fmt.Sprintf("Share: /connect %s", allAddrs[0]))
+		}
+		m.addStatus("Peer can also find you via mDNS (LAN) or DHT (internet)")
+
 	case "/profile":
 		id := m.app.Identity()
 		fp := crypto.Fingerprint(id.PublicKey)
@@ -493,15 +506,16 @@ func (m *Model) renderStatusBar() string {
 
 func (m Model) helpView() string {
 	return `Commands:
-  /help           Show this help
-  /connect <addr> Connect to a peer
-  /disconnect     Disconnect all peers
-  /peers          List known peers
-  /org create     Create an organization
-  /channel create Create a channel
-  /dm <peer>      Open direct message
-  /profile        Show your profile
-  /quit           Quit
+  /help             Show this help
+  /myaddr           Show your shareable multiaddress
+  /connect <addr>   Connect to a peer
+  /disconnect       Disconnect all peers
+  /peers            List known peers
+  /org create       Create an organization
+  /channel create   Create a channel
+  /dm <peer>        Open direct message
+  /profile          Show your profile
+  /quit             Quit
 
 Keys:
   Tab        Toggle input/navigation mode

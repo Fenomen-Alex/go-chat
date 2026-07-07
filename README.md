@@ -1,5 +1,7 @@
 # go-chat
 
+[![Release](https://github.com/anomalyco/go-chat/actions/workflows/release.yml/badge.svg)](https://github.com/anomalyco/go-chat/actions/workflows/release.yml)
+
 **Terminal P2P Chat** — A serverless, encrypted, peer-to-peer messaging platform that runs entirely in your terminal.
 
 ```
@@ -141,34 +143,76 @@ Override with CLI flags:
 | Command | Description |
 |---------|-------------|
 | `/help` | Show help |
+| `/myaddr` | Show your shareable multiaddress |
 | `/connect <multiaddr>` | Connect to a peer manually |
 | `/disconnect` | Disconnect all peers |
 | `/peers` | List known peers |
 | `/org create <name>` | Create an organization |
 | `/channel create <name>` | Create a channel |
 | `/dm <peer_id>` | Open a direct message |
-| `/profile` | Show your identity info |
+| `/profile` | Show your identity info (fingerprint) |
 | `/quit` | Exit |
 
 ### Connecting to Peers
 
 #### LAN (automatic)
 
-go-chat discovers peers on the same local network via mDNS automatically.
+go-chat discovers peers on the same local network via mDNS automatically — no setup needed.
 
-#### Manual
+#### Across the Internet (manual)
 
-```bash
-# Get your address (shown on startup or in logs)
-/ip4/192.168.1.42/tcp/43987/p2p/12D3KooW...
+To share your address with a remote peer, run `/myaddr` inside the chat. You'll see one or more lines like:
 
-# Connect to a peer
-/connect /ip4/192.168.1.100/tcp/43987/p2p/12D3KooW...
 ```
+=== Peer ID: 12D3KooW... ===
+  /ip4/192.168.1.42/tcp/43987/p2p/12D3KooW...
+  /ip4/10.0.0.5/tcp/43987/p2p/12D3KooW...
+---
+Share: /connect /ip4/<public_ip>/tcp/43987/p2p/12D3KooW...
+```
+
+The peer on the other end runs:
+
+```
+/connect /ip4/<your_public_ip>/tcp/<port>/p2p/<peer_id>
+```
+
+**Notes for internet connectivity:**
+
+- Get your public IP from [whatismyip.com](https://whatismyip.com) or your router's status page.
+- You need **port forwarding** or **UPnP** for incoming connections.
+
+#### Port Forwarding Setup
+
+1. Run `go-chat` and type `/myaddr` to see your port:
+   ```
+   /ip4/192.168.1.42/tcp/43987/p2p/12D3KooW...
+   ```
+   The port is `43987` in this example.
+
+2. Log into your router's admin panel (usually `192.168.1.1` or `192.168.0.1`).
+
+3. Find **Port Forwarding** (may be under Advanced > NAT > Virtual Server).
+
+4. Create a rule:
+   - **External Port**: `43987` (TCP)
+   - **Internal IP**: `192.168.1.42` (your local machine)
+   - **Internal Port**: `43987` (TCP)
+
+5. If your router supports **UPnP**, go-chat attempts to map the port automatically (libp2p's `NATPortMap()` is enabled by default). Verify UPnP is enabled in your router settings.
+
+6. Share your **public IP + port + peer ID** with the remote peer. They connect with:
+   ```
+   /connect /ip4/<your_public_ip>/tcp/<port>/p2p/<peer_id>
+   ```
+
+7. If a direct connection fails, libp2p automatically falls back to **hole punching** and **relay**.
+
+> **Tip:** For a static setup, set a fixed port in `config.yaml` (`network.port: 43987`) and forward that port.
 
 #### Bootstrap
 
-Add bootstrap peer multiaddrs to `network.bootstrap_peers` in config.
+Add bootstrap peer multiaddrs to `network.bootstrap_peers` in config for always-on discovery.
 
 ## Identity
 
@@ -268,13 +312,57 @@ internal/commands/        Command registry
 go build -o chat ./cmd/chat
 ```
 
-### Cross-compile
+### Cross-compile (all targets)
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o chat-linux-amd64 ./cmd/chat
-GOOS=darwin GOARCH=arm64 go build -o chat-darwin-arm64 ./cmd/chat
-GOOS=windows GOARCH=amd64 go build -o chat-windows-amd64.exe ./cmd/chat
+# Linux
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o build/chat-linux-amd64 ./cmd/chat
+GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-linux-arm64 ./cmd/chat
+
+# macOS
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o build/chat-darwin-amd64 ./cmd/chat
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-darwin-arm64 ./cmd/chat
+
+# Windows
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/chat-windows-amd64.exe ./cmd/chat
+GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-windows-arm64.exe ./cmd/chat
 ```
+
+### Download Pre-built Binaries
+
+Pre-built binaries for all platforms are available from the [Releases](https://github.com/anomalyco/go-chat/releases) page:
+
+| Platform | Architecture | Binary |
+|----------|-------------|--------|
+| Linux | amd64 | `chat-linux-amd64` |
+| Linux | arm64 | `chat-linux-arm64` |
+| macOS | Intel | `chat-darwin-amd64` |
+| macOS | Apple Silicon | `chat-darwin-arm64` |
+| Windows | amd64 | `chat-windows-amd64.exe` |
+| Windows | arm64 | `chat-windows-arm64.exe` |
+
+Each release includes SHA-256 checksums for integrity verification.
+
+## Automated Releases
+
+Every version tag (`v*`) pushed to GitHub triggers an automated release via GitHub Actions:
+
+1. **Lint** — `go vet` and formatting checks
+2. **Test** — runs unit tests
+3. **Cross-compile** — builds for all 6 targets (linux amd64/arm64, darwin amd64/arm64, windows amd64/arm64)
+4. **Checksums** — generates SHA-256 checksums
+5. **Archive** — creates `.tar.gz` (Linux/macOS) and `.zip` (Windows) archives
+6. **Release** — publishes to GitHub Releases with binaries and checksums
+
+### Create a Release
+
+```bash
+# Tag the release
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow at `.github/workflows/release.yml` handles the rest.
 
 ## Milestones
 
