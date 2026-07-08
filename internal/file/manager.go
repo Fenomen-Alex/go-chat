@@ -8,9 +8,9 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) Transfer() error {
-	return nil
+	return nil // TODO(milestone-2): implement file transfer
 }
 
 func (m *Manager) Verify() error {
-	return nil
+	return nil // TODO(milestone-2): implement file integrity verification
 }

@@ -8,5 +8,5 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) Notify(title, message string) error {
-	return nil
+	return nil // TODO(milestone-2): implement desktop/push notifications
 }

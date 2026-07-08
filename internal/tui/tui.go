@@ -20,9 +20,10 @@ import (
 )
 
 type MessageItem struct {
-	Sender    string
-	Content   string
-	Timestamp string
+	Sender       string
+	SenderPeerID string
+	Content      string
+	Timestamp    string
 }
 
 type Model struct {
@@ -114,7 +115,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
-		leftPanelWidth := 66
+		leftPanelWidth := 68 // 2 panels × (width(32) + rounded border(2))
 		inputHeight := 3
 		statusHeight := 1
 		chatHeight := m.height - inputHeight - statusHeight - 4
@@ -199,11 +200,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "?":
 			m.showHelp = !m.showHelp
+			if m.showHelp {
+				m.showPeers = false
+			}
 
 		case "P":
 			m.showPeers = !m.showPeers
 			if m.showPeers {
 				m.loadPeers()
+				m.showHelp = false
 			}
 		}
 	}
@@ -232,7 +237,7 @@ func (m *Model) handleInput() tea.Cmd {
 			return m.handleCommand(text)
 		}
 		name := strings.TrimSpace(text)
-		if name == "" || name == "me" || strings.HasPrefix(name, "me_") {
+		if m.app.IsReservedDisplayName(name) {
 			m.namePromptErr = "Invalid or reserved name. Please choose another."
 			return nil
 		}
@@ -277,9 +282,10 @@ func (m *Model) handleInput() tea.Cmd {
 	}
 
 	msg := MessageItem{
-		Sender:    m.app.Identity().DisplayName,
-		Content:   text,
-		Timestamp: "now",
+		Sender:       m.app.Identity().DisplayName,
+		SenderPeerID: m.app.PeerID(),
+		Content:      text,
+		Timestamp:    "now",
 	}
 	m.messages = append(m.messages, msg)
 	m.chatView.SetContent(m.renderMessages())
@@ -537,7 +543,7 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 			return nil
 		}
 		name := strings.Join(parts[1:], " ")
-		if name == "" || name == "me" || strings.HasPrefix(name, "me_") {
+		if m.app.IsReservedDisplayName(name) {
 			m.addStatus("Invalid or reserved name")
 			return nil
 		}
@@ -618,16 +624,17 @@ func (m *Model) loadMessages() {
 		return
 	}
 
-	m.messages = nil
-	for i := len(msgs) - 1; i >= 0; i-- {
-		msg := msgs[i]
-		sender := m.app.GetPeerDisplayName(msg.SenderPeerID)
-		m.messages = append(m.messages, MessageItem{
-			Sender:    sender,
-			Content:   msg.Content,
-			Timestamp: msg.CreatedAt.Format("15:04"),
-		})
-	}
+		m.messages = nil
+		for i := len(msgs) - 1; i >= 0; i-- {
+			msg := msgs[i]
+			sender := m.app.GetPeerDisplayName(msg.SenderPeerID)
+			m.messages = append(m.messages, MessageItem{
+				Sender:       sender,
+				SenderPeerID: msg.SenderPeerID,
+				Content:      msg.Content,
+				Timestamp:    msg.CreatedAt.Format("15:04"),
+			})
+		}
 	m.chatView.SetContent(m.renderMessages())
 	m.chatView.GotoBottom()
 }
@@ -785,8 +792,8 @@ func (m *Model) renderMessages() string {
 		chatWidth = 40
 	}
 	for _, msg := range m.messages {
-		senderStyle := lipgloss.NewStyle().Bold(true).Foreground(senderColor(msg.Sender))
-		if msg.Sender == m.app.Identity().DisplayName {
+		senderStyle := lipgloss.NewStyle().Bold(true).Foreground(senderColor(msg.SenderPeerID))
+		if msg.SenderPeerID == m.app.PeerID() {
 			senderStyle = SelfSenderStyle
 		}
 		content := msg.Content

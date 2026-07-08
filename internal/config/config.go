@@ -67,7 +67,7 @@ func Default() *Config {
 			Port:        0,
 			EnableRelay: true,
 			EnableMDNS:  true,
-			EnableDHT:   true,
+			EnableDHT:   false,
 			EnableQUIC:  true,
 			EnableTCP:   true,
 		},

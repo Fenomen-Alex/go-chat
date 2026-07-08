@@ -226,8 +226,12 @@ func (a *App) GetPeerDisplayName(peerID string) string {
 	return p.DisplayName
 }
 
+func (a *App) IsReservedDisplayName(name string) bool {
+	return name == "" || name == "me" || strings.HasPrefix(name, "me_")
+}
+
 func (a *App) SendMessage(channelID, content, contentType string) error {
-	msgID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
+	msgID := fmt.Sprintf("msg_%s_%d", a.PeerID(), time.Now().UnixNano())
 	cipher := crypto.NewCipher(make([]byte, 32))
 	env, err := protocol.NewEncryptedMessage(a.PeerID(), channelID, msgID, content, contentType, "", cipher)
 	if err != nil {

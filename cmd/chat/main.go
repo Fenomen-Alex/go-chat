@@ -42,7 +42,7 @@ func main() {
 
 	if *nameFlag != "" {
 		name := strings.TrimSpace(*nameFlag)
-		if name == "me" || strings.HasPrefix(name, "me_") {
+		if a.IsReservedDisplayName(name) {
 			fmt.Fprintf(os.Stderr, "Error: '%s' is a reserved name, choose another\n", name)
 			os.Exit(1)
 		}

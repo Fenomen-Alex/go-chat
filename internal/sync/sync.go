@@ -8,9 +8,9 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) Sync() error {
-	return nil
+	return nil // TODO(milestone-2): implement sync reconciliation
 }
 
 func (m *Manager) Reconcile() error {
-	return nil
+	return nil // TODO(milestone-2): implement conflict resolution
 }
