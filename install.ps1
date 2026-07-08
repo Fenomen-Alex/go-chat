@@ -3,7 +3,7 @@ param(
 )
 
 $Repo = "Fenomen-Alex/go-chat"
-$Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { "arm64" } else { "amd64" }
+$Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64' -or $env:PROCESSOR_IDENTIFIER -like '*AArch64*') { "arm64" } else { "amd64" }
 $Binary = "chat-windows-$Arch.exe"
 $Url = "https://github.com/$Repo/releases/download/$Version/$Binary"
 $ChecksumsUrl = "https://github.com/$Repo/releases/download/$Version/checksums.txt"

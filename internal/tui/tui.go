@@ -148,7 +148,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		m.loading = false
-		m.addStatus(string(msg))
+		s := string(msg)
+		m.addStatus(s)
+		if strings.HasPrefix(s, "Connected to ") {
+			m.loadChannels()
+			m.loadPeers()
+		}
 
 	case firstLaunchMsg:
 		m.addStatus("Tab to navigate | ? for help | /channel create <name>")
@@ -346,14 +351,18 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 			m.inputMode = true
 			return nil
 		}
-		if err := m.app.Connect(arg); err != nil {
-			m.addStatus(fmt.Sprintf("Connect error: %v", err))
-			return nil
+		m.addStatus(fmt.Sprintf("Connecting to %s...", arg))
+		m.loading = true
+		m.loadingMsg = "Connecting..."
+		appPtr := m.app
+		connAddr := arg
+		return func() tea.Msg {
+			if err := appPtr.Connect(connAddr); err != nil {
+				return statusMsg(fmt.Sprintf("Connect error: %v", err))
+			}
+			appPtr.SaveConnection(connAddr)
+			return statusMsg(fmt.Sprintf("Connected to %s", connAddr))
 		}
-		m.app.SaveConnection(arg)
-		m.addStatus(fmt.Sprintf("Connected to %s", arg))
-		m.loadChannels()
-		m.loadPeers()
 
 	case "/disconnect":
 		m.app.DisconnectAll()

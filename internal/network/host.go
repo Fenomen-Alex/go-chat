@@ -274,7 +274,7 @@ func (n *Node) exchangeKeys(s network.Stream, peerID peer.ID, r *bufio.Reader) {
 	})
 
 	s.SetReadDeadline(time.Now().Add(10 * time.Second))
-	ackData, err := r.ReadBytes('\n')
+	ackData, err := readLine(r, 1<<20)
 	if err != nil {
 		n.Logger.Debug("key exchange ack not received from %s: %v", peerID.String(), err)
 		return
@@ -357,7 +357,7 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 	timeoutCnt := 0
 	for {
 		s.SetReadDeadline(time.Now().Add(60 * time.Second))
-		data, err := r.ReadBytes('\n')
+		data, err := readLine(r, 1<<20)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				timeoutCnt++

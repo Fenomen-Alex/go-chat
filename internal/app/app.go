@@ -283,11 +283,15 @@ func (a *App) Connect(addrStr string) error {
 	if a.Node == nil {
 		return fmt.Errorf("network not initialized")
 	}
-	peerID, err := a.Node.Connect(context.Background(), addrStr)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	peerID, err := a.Node.Connect(ctx, addrStr)
 	if err != nil {
 		return err
 	}
-	if err := a.Node.SyncWithPeer(context.Background(), peerID); err != nil {
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer syncCancel()
+	if err := a.Node.SyncWithPeer(syncCtx, peerID); err != nil {
 		a.Logger.Warn("sync with peer: %v", err)
 	}
 	return nil

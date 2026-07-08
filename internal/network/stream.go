@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,26 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 )
+
+var errLineTooLong = errors.New("line exceeds max size")
+
+func readLine(r *bufio.Reader, max int) ([]byte, error) {
+	var total int
+	for {
+		b, err := r.ReadSlice('\n')
+		total += len(b)
+		if total > max {
+			return nil, errLineTooLong
+		}
+		if err == nil || err == bufio.ErrBufferFull {
+			if err == nil {
+				return b, nil
+			}
+			continue
+		}
+		return b, err
+	}
+}
 
 type StreamHandler struct {
 	node    *Node
@@ -35,12 +56,12 @@ func (h *StreamHandler) Handle(s network.Stream) {
 
 	for {
 		s.SetReadDeadline(time.Now().Add(30 * time.Second))
-		data, err := r.ReadBytes('\n')
+		data, err := readLine(r, 1<<20)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			if err != io.EOF {
+			if err != io.EOF && err != errLineTooLong {
 				h.node.Logger.Debug("stream read error from %s: %v", peerID, err)
 			}
 			return
@@ -72,12 +93,12 @@ func (h *StreamHandler) handleSyncRequest(s network.Stream, peerID string, r *bu
 	h.node.Logger.Info("handling sync request from %s", peerID)
 
 	for {
-		s.SetReadDeadline(time.Now().Add(30 * time.Second))
-		data, err := r.ReadBytes('\n')
+		s.SetReadDeadline(time.Now().Add(60 * time.Second))
+		data, err := readLine(r, 1<<20)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				h.node.Logger.Debug("sync read timeout from %s, peer may be gone", peerID)
-				return
+				h.node.Logger.Debug("sync read timeout from %s, assuming done", peerID)
+				break
 			}
 			h.node.Logger.Debug("sync read error from %s: %v", peerID, err)
 			return
@@ -92,17 +113,26 @@ func (h *StreamHandler) handleSyncRequest(s network.Stream, peerID string, r *bu
 		h.DecryptMessage(&msg, peerID)
 
 		if msg.Type == "sync_complete" {
-			h.sendFullState(s)
-			return
+			break
 		}
 
 		h.handleMessage(&msg, s)
 	}
+
+	h.sendFullState(s)
 }
 
 func (h *StreamHandler) handleMessage(msg *Message, s network.Stream) {
 	remotePeerID := h.remotePeerID(s)
 	h.node.Logger.Info("received %s from %s", msg.Type, remotePeerID)
+
+	if msg.SenderID != "" && msg.SenderID != remotePeerID {
+		known, err := h.node.Store.GetPeer(msg.SenderID)
+		if err == nil && known == nil {
+			h.node.Logger.Debug("rejected %s from %s claiming unknown peer %s", msg.Type, remotePeerID, msg.SenderID)
+			return
+		}
+	}
 
 	switch msg.Type {
 	case "sync_org":
