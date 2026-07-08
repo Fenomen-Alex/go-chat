@@ -945,7 +945,13 @@ func (m *Model) renderStatusBar() string {
 	}
 
 	left := StatusStyle.Render(statusText)
-	right := StatusStyle.Render(fmt.Sprintf("%s  Peers: %d", modeBadge, len(m.peerList)))
+	onlinePeers := 0
+	for _, p := range m.peerList {
+		if p.Status == "online" {
+			onlinePeers++
+		}
+	}
+	right := StatusStyle.Render(fmt.Sprintf("%s  Peers: %d", modeBadge, onlinePeers))
 
 	barWidth := m.width - 4
 	leftLen := lipgloss.Width(left)
