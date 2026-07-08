@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"go-chat/internal/app"
@@ -87,6 +88,7 @@ func NewModel(a *app.App) *Model {
 type refreshMsg struct{}
 type statusMsg string
 type firstLaunchMsg struct{}
+type loadingTickMsg time.Time
 
 func (m *Model) Init() tea.Cmd {
 	m.loadChannels()
@@ -145,6 +147,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.needsName {
 			m.input.Width = 42
 		}
+
+	case loadingTickMsg:
+		if m.loading {
+			elapsed := time.Since(time.Time(msg)).Truncate(time.Second)
+			dots := elapsed.String()
+			if elapsed > 15*time.Second {
+				m.loadingMsg = "Still connecting... " + dots
+			} else {
+				m.loadingMsg = "Connecting... " + dots
+			}
+			return m, m.loadingTick()
+		}
+		return m, nil
 
 	case statusMsg:
 		m.loading = false
@@ -269,14 +284,16 @@ func (m *Model) handleInput() tea.Cmd {
 			addr := m.pendingConnect
 			m.pendingConnect = ""
 			m.addStatus(fmt.Sprintf("Connecting to %s...", addr))
-			if err := m.app.Connect(addr); err != nil {
-				m.addStatus(fmt.Sprintf("Connect error: %v", err))
-				return nil
-			}
-			m.app.SaveConnection(addr)
-			m.addStatus(fmt.Sprintf("Connected to %s", addr))
-			m.loadChannels()
-			m.loadPeers()
+			m.loading = true
+			m.loadingMsg = "Connecting..."
+			appPtr := m.app
+			return tea.Batch(func() tea.Msg {
+				if err := appPtr.Connect(addr); err != nil {
+					return statusMsg(fmt.Sprintf("Connect error: %v", err))
+				}
+				appPtr.SaveConnection(addr)
+				return statusMsg(fmt.Sprintf("Connected to %s", addr))
+			}, m.loadingTick())
 		}
 		return nil
 	}
@@ -356,13 +373,13 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		m.loadingMsg = "Connecting..."
 		appPtr := m.app
 		connAddr := arg
-		return func() tea.Msg {
+		return tea.Batch(func() tea.Msg {
 			if err := appPtr.Connect(connAddr); err != nil {
 				return statusMsg(fmt.Sprintf("Connect error: %v", err))
 			}
 			appPtr.SaveConnection(connAddr)
 			return statusMsg(fmt.Sprintf("Connected to %s", connAddr))
-		}
+		}, m.loadingTick())
 
 	case "/disconnect":
 		m.app.DisconnectAll()
@@ -585,6 +602,12 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 	}
 
 	return nil
+}
+
+func (m *Model) loadingTick() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+		return loadingTickMsg(t)
+	})
 }
 
 func (m *Model) addStatus(msg string) {
