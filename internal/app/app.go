@@ -92,7 +92,16 @@ func (a *App) loadOrCreateIdentity() error {
 		}
 		a.libp2pKey = priv
 		a.Logger.Info("loaded identity: %s (%s)", id.DisplayName, id.PeerID)
-		return nil
+		now := time.Now().UTC()
+		return a.Store.SavePeer(&storage.Peer{
+			PeerID:      id.PeerID,
+			DisplayName: id.DisplayName,
+			Status:      "online",
+			FirstSeen:   now,
+			LastSeen:    now,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		})
 	}
 
 	keypair, err := crypto.GenerateIdentityKeypair()
@@ -144,7 +153,15 @@ func (a *App) loadOrCreateIdentity() error {
 	a.identity = id
 	a.libp2pKey = privKey
 	a.Logger.Info("created identity: %s (%s)", displayName, peerID)
-	return nil
+	return a.Store.SavePeer(&storage.Peer{
+		PeerID:      peerID,
+		DisplayName: displayName,
+		Status:      "online",
+		FirstSeen:   now,
+		LastSeen:    now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
 }
 
 func (a *App) startNetworking() error {
