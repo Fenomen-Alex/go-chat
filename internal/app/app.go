@@ -310,15 +310,15 @@ func (a *App) ListPeers() ([]*storage.Peer, error) {
 			if connected[p.PeerID] {
 				if p.Status != "online" {
 					p.Status = "online"
-				if err := a.Store.UpdatePeerStatus(p.PeerID, "online"); err != nil {
-					a.Logger.Warn("update peer status online: %v", err)
+					if err := a.Store.UpdatePeerStatus(p.PeerID, "online"); err != nil {
+						a.Logger.Warn("update peer status online: %v", err)
+					}
 				}
-			}
-		} else if p.Status == "online" {
-			p.Status = "offline"
-			if err := a.Store.UpdatePeerStatus(p.PeerID, "offline"); err != nil {
-				a.Logger.Warn("update peer status offline: %v", err)
-			}
+			} else if p.Status == "online" {
+				p.Status = "offline"
+				if err := a.Store.UpdatePeerStatus(p.PeerID, "offline"); err != nil {
+					a.Logger.Warn("update peer status offline: %v", err)
+				}
 			}
 		}
 

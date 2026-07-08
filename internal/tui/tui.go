@@ -519,11 +519,11 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		if utf8.RuneCountInString(addr) > 50 {
 			addr = string([]rune(addr)[:50]) + "..."
 		}
-			nick := c.Nickname
-			if nick == "" {
-				nick = "-"
-			}
-			lines = append(lines, fmt.Sprintf("  %d. %s  (%s)", i+1, addr, nick))
+		nick := c.Nickname
+		if nick == "" {
+			nick = "-"
+		}
+		lines = append(lines, fmt.Sprintf("  %d. %s  (%s)", i+1, addr, nick))
 		}
 		lines = append(lines, "Reconnect: /connect <index>")
 		for _, line := range lines {
@@ -624,17 +624,17 @@ func (m *Model) loadMessages() {
 		return
 	}
 
-		m.messages = nil
-		for i := len(msgs) - 1; i >= 0; i-- {
-			msg := msgs[i]
-			sender := m.app.GetPeerDisplayName(msg.SenderPeerID)
-			m.messages = append(m.messages, MessageItem{
-				Sender:       sender,
-				SenderPeerID: msg.SenderPeerID,
-				Content:      msg.Content,
-				Timestamp:    msg.CreatedAt.Format("15:04"),
-			})
-		}
+	m.messages = nil
+	for i := len(msgs) - 1; i >= 0; i-- {
+		msg := msgs[i]
+		sender := m.app.GetPeerDisplayName(msg.SenderPeerID)
+		m.messages = append(m.messages, MessageItem{
+			Sender:       sender,
+			SenderPeerID: msg.SenderPeerID,
+			Content:      msg.Content,
+			Timestamp:    msg.CreatedAt.Format("15:04"),
+		})
+	}
 	m.chatView.SetContent(m.renderMessages())
 	m.chatView.GotoBottom()
 }
