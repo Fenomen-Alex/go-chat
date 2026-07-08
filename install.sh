@@ -52,17 +52,21 @@ else
   wget -q "${BASE_URL}/checksums.txt" -O "$CHECK_FILE" 2>/dev/null || true
 fi
 
-if [ -f "$CHECK_FILE" ]; then
-  EXPECTED=$(grep "$BINARY" "$CHECK_FILE" | awk '{print $1}')
-  if [ -n "$EXPECTED" ]; then
-    ACTUAL=$(sha256sum "$TMP_DIR/$BINARY" 2>/dev/null || shasum -a 256 "$TMP_DIR/$BINARY" 2>/dev/null | awk '{print $1}')
-    if [ "$EXPECTED" != "$ACTUAL" ]; then
-      echo "checksum mismatch"
-      exit 1
-    fi
-    echo "checksum verified"
-  fi
+if [ ! -f "$CHECK_FILE" ]; then
+  echo "error: could not fetch checksums — aborting" >&2
+  exit 1
 fi
+EXPECTED=$(grep "$BINARY" "$CHECK_FILE" | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+  echo "error: binary not found in checksums" >&2
+  exit 1
+fi
+ACTUAL=$(sha256sum "$TMP_DIR/$BINARY" 2>/dev/null || shasum -a 256 "$TMP_DIR/$BINARY" 2>/dev/null | awk '{print $1}')
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+  echo "checksum mismatch" >&2
+  exit 1
+fi
+echo "checksum verified"
 
 chmod +x "$TMP_DIR/$BINARY"
 

@@ -839,7 +839,7 @@ func (m *Model) renderStatusBar() string {
 	return lipgloss.JoinHorizontal(lipgloss.Left, left, spacer, right)
 }
 
-func (m Model) helpView() string {
+func (m *Model) helpView() string {
 	return HelpStyle.Render(`Commands:
   /help             Show this help
   /myaddr           Show your local addresses
@@ -871,7 +871,7 @@ Internet:
   /relay <addr>     libp2p relay (requires public server)`)
 }
 
-func (m Model) peersView() string {
+func (m *Model) peersView() string {
 	if len(m.peerList) == 0 {
 		return DimmedStyle.Render("  No peers connected.")
 	}
