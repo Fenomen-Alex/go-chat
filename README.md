@@ -24,7 +24,8 @@
 - **libp2p networking** — TCP, QUIC, mDNS discovery, relay, NAT traversal, hole punching.
 - **Color-coded senders** — Each peer gets a unique color in chat.
 - **Organizations & Channels** — Create orgs, channels, manage members and permissions.
-- **Direct Messages** — Encrypted peer-to-peer conversations.
+- **Private Channels** — Invite-only channels with lock icon markers.
+- **Direct Messages** — Encrypted peer-to-peer conversations, shown in dedicated DM panel.
 - **Automatic peer discovery** — mDNS for LAN, DHT for internet, bootstrap peers.
 - **Ed25519 identities** — Generated locally on first launch. Fingerprint-based verification.
 - **Offline-first** — Messages queued locally, synced when peers reconnect.
@@ -163,10 +164,11 @@ Override with CLI flags:
 | Channels                    | Chat                                   |
 |                             |                                        |
 |  # general                  |  12:30 alice: hello                    |
-|  # random                   |  12:31 bob: hi                         |
+|  🔒 secret-project          |  12:31 bob: hi                         |
 |                             |                                        |
 +-----------------------------+                                        |
-| Logs                        |                                        |
+| Direct Messages             |                                        |
+|  @ DM-alice                 |                                        |
 +-----------------------------+                                        |
 | Status: #general                        [INPUT] Peers: 2            |
 +-----------------------------+----------------------------------------+
@@ -178,11 +180,12 @@ Override with CLI flags:
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Cycle: input mode → channels → logs |
-| `Up` / `Down` | Switch channels (nav mode) / scroll chat (input mode) |
+| `Tab` | Cycle: input mode → channels → DMs |
+| `Up` / `Down` | Switch channels/DMs (nav mode) / scroll chat (input mode) |
 | `Enter` | Send message / switch to input mode |
 | `?` | Toggle help |
 | `P` | Toggle peers list |
+| `L` | Toggle logs overlay |
 | `Ctrl+C` / `Ctrl+Q` | Quit |
 
 ### Commands
@@ -198,7 +201,11 @@ Override with CLI flags:
 | `/tunnel <addr>` | Create a TCP tunnel (requires tunnel server) |
 | `/disconnect` | Disconnect all peers |
 | `/peers` | List known peers |
-| `/channel create <name>` | Create a channel |
+| `/channel create <name>` | Create a public channel |
+| `/channel private <name> [desc]` | Create a private channel (invite only) |
+| `/invite <channel_id> <peer_id>` | Invite a peer to a private channel |
+| `/invite accept <invite_id>` | Accept a channel invite |
+| `/invites` | List pending invites |
 | `/dm <peer_id>` | Open a direct message |
 | `/name [name]` | Show or set your display name |
 | `/profile` | Show your identity info (fingerprint) |
@@ -379,6 +386,7 @@ Local SQLite database (`chat.db`) with the following tables:
 - `peers` — Known peers, keys, trust status
 - `organizations` — Org metadata and settings
 - `channels` — Channel config and metadata
+- `channel_members` — Private channel membership
 - `memberships` — Peer-org role mappings
 - `messages` — Chat history (encrypted content)
 - `attachments` — File transfer metadata
@@ -484,8 +492,8 @@ The workflow at `.github/workflows/release.yml` handles the rest.
 | # | Area | Status |
 |---|------|--------|
 | 1 | Foundation — project structure, config, identity, SQLite, libp2p, TUI | Done |
-| 2 | Chat — DMs, history, typing, reactions, file transfer, notifications | In Progress |
-| 3 | Organizations — membership, roles, permissions, invites, moderation | Planned |
+| 2 | Chat — DMs, private channels, invites, sync, history | Done |
+| 3 | Organizations — membership, roles, permissions, moderation | In Progress |
 | 4 | Synchronization — multi-peer state, offline queue, conflict resolution | Planned |
 | 5 | Advanced — threads, bookmarks, themes, command palette, encrypted backups | Planned |
 | 6 | Polish — performance, security audit, cross-platform validation, releases | Planned |

@@ -146,12 +146,22 @@ func (h *StreamHandler) handleMessage(msg *Message, s network.Stream) {
 		}
 	case "message":
 		if h.node.Store != nil {
-			h.handleSyncMessage(msg)
+			h.handleSyncMessage(msg, remotePeerID)
 			h.notifyRefresh()
 		}
 	case "sync_peer":
 		if h.node.Store != nil {
 			h.handleSyncPeer(msg, remotePeerID)
+			h.notifyRefresh()
+		}
+	case "sync_invite":
+		if h.node.Store != nil {
+			h.handleSyncInvite(msg)
+			h.notifyRefresh()
+		}
+	case "sync_channel_member":
+		if h.node.Store != nil {
+			h.handleSyncChannelMember(msg)
 			h.notifyRefresh()
 		}
 	default:
@@ -219,6 +229,12 @@ func (h *StreamHandler) sendSyncState(s network.Stream) {
 			if strings.HasPrefix(ch.ChannelID, "dm_") && !strings.Contains(ch.ChannelID, remotePeerID) {
 				continue
 			}
+			if ch.ChannelType == "private" {
+				member, err := h.node.Store.IsChannelMember(ch.ChannelID, remotePeerID)
+				if err != nil || !member {
+					continue
+				}
+			}
 			if err := h.SendMessage(s, &Message{
 				Type:        "sync_channel",
 				SenderID:    h.node.Host.ID().String(),
@@ -229,6 +245,21 @@ func (h *StreamHandler) sendSyncState(s network.Stream) {
 				Timestamp:   ch.CreatedAt.UnixMilli(),
 			}); err != nil {
 				h.node.Logger.Debug("send sync_channel: %v", err)
+			}
+			if ch.ChannelType == "private" {
+				members, err := h.node.Store.ListChannelMembers(ch.ChannelID)
+				if err == nil {
+					for _, m := range members {
+						h.SendMessage(s, &Message{
+							Type:         "sync_channel_member",
+							SenderID:     h.node.Host.ID().String(),
+							ChannelID:    ch.ChannelID,
+							MemberPeerID: m.PeerID,
+							MemberRole:   m.Role,
+							Timestamp:    m.JoinedAt.UnixMilli(),
+						})
+					}
+				}
 			}
 		}
 	} else {
@@ -273,10 +304,21 @@ func (h *StreamHandler) sendSyncState(s network.Stream) {
 }
 
 func (h *StreamHandler) peerCanAccess(peerID, channelID string) bool {
-	if !strings.HasPrefix(channelID, "dm_") {
+	if strings.HasPrefix(channelID, "dm_") {
+		return strings.Contains(channelID, peerID)
+	}
+	ch, err := h.node.Store.GetChannel(channelID)
+	if err != nil || ch == nil {
 		return true
 	}
-	return strings.Contains(channelID, peerID)
+	if ch.ChannelType == "private" {
+		member, err := h.node.Store.IsChannelMember(channelID, peerID)
+		if err != nil {
+			return false
+		}
+		return member
+	}
+	return true
 }
 
 func (h *StreamHandler) ensurePeerExists(peerID string) {
@@ -302,10 +344,16 @@ func (h *StreamHandler) ensurePeerExists(peerID string) {
 	}
 }
 
-func (h *StreamHandler) handleSyncMessage(msg *Message) {
+func (h *StreamHandler) handleSyncMessage(msg *Message, remotePeerID string) {
 	if msg.MessageID == "" || msg.ChannelID == "" {
 		return
 	}
+
+	if !h.peerCanAccess(remotePeerID, msg.ChannelID) {
+		h.node.Logger.Debug("rejected message for channel %s from %s (no access)", msg.ChannelID, remotePeerID)
+		return
+	}
+
 	h.ensurePeerExists(msg.SenderID)
 
 	existing, err := h.node.Store.GetChannel(msg.ChannelID)
@@ -314,21 +362,20 @@ func (h *StreamHandler) handleSyncMessage(msg *Message) {
 	}
 	if existing == nil {
 		name := msg.ChannelID
+		chType := "text"
 		if strings.HasPrefix(msg.ChannelID, "dm_") {
 			name = "DM"
+			chType = "dm"
+		}
+		if msg.ChannelType != "" {
+			chType = msg.ChannelType
 		}
 		ch := &storage.Channel{
 			ChannelID:   msg.ChannelID,
 			Name:        name,
-			ChannelType: "text",
+			ChannelType: chType,
 			CreatedAt:   time.Now().UTC(),
 			UpdatedAt:   time.Now().UTC(),
-		}
-		if msg.ChannelType != "" {
-			ch.ChannelType = msg.ChannelType
-		}
-		if strings.HasPrefix(msg.ChannelID, "dm_") {
-			ch.ChannelType = "dm"
 		}
 		if err := h.node.Store.SaveChannel(ch); err != nil {
 			h.node.Logger.Warn("create channel from message: %v", err)
@@ -545,6 +592,57 @@ func (h *StreamHandler) handleKeyExchange(s network.Stream, peerID string, msg *
 
 	h.node.SetSessionKey(peerID, key)
 	h.node.Logger.Debug("key exchange complete with %s", peerID)
+}
+
+func (h *StreamHandler) handleSyncInvite(msg *Message) {
+	if msg.InviteID == "" || msg.ChannelID == "" || msg.TargetPeerID == "" {
+		return
+	}
+	localPeerID := h.node.Host.ID().String()
+	if msg.TargetPeerID != localPeerID {
+		return
+	}
+	existing, err := h.node.Store.GetInvite(msg.InviteID)
+	if err != nil {
+		h.node.Logger.Warn("get invite %s: %v", msg.InviteID, err)
+	}
+	if existing != nil {
+		return
+	}
+	inv := &storage.Invite{
+		InviteID:     msg.InviteID,
+		SenderPeerID: msg.SenderID,
+		TargetPeerID: msg.TargetPeerID,
+		ChannelID:    msg.ChannelID,
+		InviteType:   "channel",
+		Message:      msg.Content,
+		OneTime:      true,
+		CreatedAt:    time.UnixMilli(msg.Timestamp).UTC(),
+	}
+	if err := h.node.Store.SaveInvite(inv); err != nil {
+		h.node.Logger.Warn("save synced invite: %v", err)
+	}
+	h.node.Logger.Info("received channel invite from %s for channel %s", msg.SenderID, msg.ChannelID)
+}
+
+func (h *StreamHandler) handleSyncChannelMember(msg *Message) {
+	if msg.ChannelID == "" || msg.MemberPeerID == "" {
+		return
+	}
+	existing, err := h.node.Store.GetChannel(msg.ChannelID)
+	if err != nil {
+		h.node.Logger.Warn("get channel %s for member sync: %v", msg.ChannelID, err)
+	}
+	if existing == nil {
+		return
+	}
+	role := msg.MemberRole
+	if role == "" {
+		role = "member"
+	}
+	if err := h.node.Store.AddChannelMember(msg.ChannelID, msg.MemberPeerID, role); err != nil {
+		h.node.Logger.Warn("save synced channel member: %v", err)
+	}
 }
 
 

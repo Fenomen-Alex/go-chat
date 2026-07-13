@@ -391,12 +391,145 @@ func (a *App) CreateChannel(name, channelType string) (*storage.Channel, error) 
 	return ch, nil
 }
 
+func (a *App) CreatePrivateChannel(name, description string) (*storage.Channel, error) {
+	ch, err := a.channelManager.CreatePrivateChannel(name, description, a.PeerID())
+	if err != nil {
+		return nil, err
+	}
+	if a.Node != nil {
+		a.Node.Broadcast(&network.Message{
+			Type:        "sync_channel",
+			SenderID:    a.PeerID(),
+			ChannelID:   ch.ChannelID,
+			Content:     name,
+			ChannelType: "private",
+			Timestamp:   time.Now().UnixMilli(),
+		})
+		a.Node.Broadcast(&network.Message{
+			Type:         "sync_channel_member",
+			SenderID:     a.PeerID(),
+			ChannelID:    ch.ChannelID,
+			MemberPeerID: a.PeerID(),
+			MemberRole:   "owner",
+			Timestamp:    time.Now().UnixMilli(),
+		})
+	}
+	return ch, nil
+}
+
+func (a *App) InviteToChannel(channelID, peerID string) (string, error) {
+	ch, err := a.channelManager.GetChannel(channelID)
+	if err != nil {
+		return "", err
+	}
+	if ch == nil {
+		return "", fmt.Errorf("channel not found")
+	}
+	if ch.ChannelType != "private" {
+		return "", fmt.Errorf("invites are only for private channels")
+	}
+	member, err := a.channelManager.IsMember(channelID, a.PeerID())
+	if err != nil {
+		return "", err
+	}
+	if !member {
+		return "", fmt.Errorf("you are not a member of this channel")
+	}
+
+	inviteID := fmt.Sprintf("inv_%d", time.Now().UnixNano())
+	inv := &storage.Invite{
+		InviteID:     inviteID,
+		SenderPeerID: a.PeerID(),
+		TargetPeerID: peerID,
+		ChannelID:    channelID,
+		InviteType:   "channel",
+		OneTime:      true,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := a.Store.SaveInvite(inv); err != nil {
+		return "", fmt.Errorf("save invite: %w", err)
+	}
+
+	if a.Node != nil {
+		a.Node.Broadcast(&network.Message{
+			Type:         "sync_invite",
+			SenderID:     a.PeerID(),
+			InviteID:     inviteID,
+			ChannelID:    channelID,
+			TargetPeerID: peerID,
+			Content:      fmt.Sprintf("Invite to %s", ch.Name),
+			Timestamp:    time.Now().UnixMilli(),
+		})
+	}
+
+	return inviteID, nil
+}
+
+func (a *App) AcceptInvite(inviteID string) (string, error) {
+	inv, err := a.Store.GetInvite(inviteID)
+	if err != nil {
+		return "", err
+	}
+	if inv == nil {
+		return "", fmt.Errorf("invite not found")
+	}
+	if inv.TargetPeerID != a.PeerID() {
+		return "", fmt.Errorf("this invite is not for you")
+	}
+
+	if err := a.channelManager.AddMember(inv.ChannelID, a.PeerID(), "member"); err != nil {
+		return "", fmt.Errorf("add channel member: %w", err)
+	}
+
+	if a.Node != nil {
+		a.Node.Broadcast(&network.Message{
+			Type:         "sync_channel_member",
+			SenderID:     a.PeerID(),
+			ChannelID:    inv.ChannelID,
+			MemberPeerID: a.PeerID(),
+			MemberRole:   "member",
+			Timestamp:    time.Now().UnixMilli(),
+		})
+	}
+
+	if err := a.Store.DeleteInvite(inviteID); err != nil {
+		a.Logger.Warn("delete accepted invite: %v", err)
+	}
+
+	return inv.ChannelID, nil
+}
+
+func (a *App) ListPendingInvites() ([]*storage.Invite, error) {
+	return a.Store.ListPendingInvites(a.PeerID())
+}
+
 func (a *App) DeleteChannel(channelID string) error {
 	return a.Store.ArchiveChannel(channelID)
 }
 
 func (a *App) ListChannels() ([]*storage.Channel, error) {
-	return a.channelManager.ListChannels("")
+	allChannels, err := a.channelManager.ListChannels("")
+	if err != nil {
+		return nil, err
+	}
+	var filtered []*storage.Channel
+	for _, ch := range allChannels {
+		if ch.ChannelType == "dm" {
+			continue
+		}
+		if ch.ChannelType == "private" {
+			member, err := a.channelManager.IsMember(ch.ChannelID, a.PeerID())
+			if err != nil || !member {
+				continue
+			}
+		}
+		filtered = append(filtered, ch)
+	}
+	return filtered, nil
+}
+
+func (a *App) ListDMChannels() ([]*storage.Channel, error) {
+	return a.channelManager.ListDMChannels()
 }
 
 func (a *App) ListMessages(channelID string, limit, offset int) ([]*storage.Message, error) {
@@ -430,6 +563,16 @@ func (a *App) OpenDM(peerID string) (string, error) {
 		}
 		if err := a.Store.SaveChannel(ch); err != nil {
 			return "", fmt.Errorf("save dm channel: %w", err)
+		}
+		if a.Node != nil {
+			a.Node.Broadcast(&network.Message{
+				Type:        "sync_channel",
+				SenderID:    a.PeerID(),
+				ChannelID:   channelID,
+				Content:     ch.Name,
+				ChannelType: "dm",
+				Timestamp:   now.UnixMilli(),
+			})
 		}
 	}
 

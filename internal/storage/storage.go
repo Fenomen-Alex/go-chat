@@ -211,6 +211,14 @@ func (s *Store) migrate() error {
 			last_connected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS channel_members (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			channel_id TEXT NOT NULL REFERENCES channels(channel_id) ON DELETE CASCADE,
+			peer_id TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'member',
+			joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(channel_id, peer_id)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_peer_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)`,
@@ -219,6 +227,8 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_memberships_org ON memberships(org_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(message_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channel_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_channel_members_peer ON channel_members(peer_id)`,
 	}
 
 	for _, q := range tables {

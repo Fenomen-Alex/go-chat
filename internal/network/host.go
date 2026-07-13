@@ -393,7 +393,7 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 			}
 		case "message":
 			if n.Store != nil {
-				handler.handleSyncMessage(&msg)
+				handler.handleSyncMessage(&msg, peerID.String())
 			}
 		}
 		if n.RefreshCh != nil {

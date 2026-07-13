@@ -36,6 +36,9 @@ type Model struct {
 	channelList    []*storage.Channel
 	selectedChan   int
 
+	dmList       []*storage.Channel
+	selectedDM   int
+
 	chatView       viewport.Model
 	messages       []MessageItem
 
@@ -50,8 +53,9 @@ type Model struct {
 
 	showHelp       bool
 	showPeers      bool
+	showLogs       bool
 
-	logPanelFocused bool
+	dmFocused      bool
 
 	pendingConnect string
 	needsName      bool
@@ -92,6 +96,7 @@ type loadingTickMsg time.Time
 
 func (m *Model) Init() tea.Cmd {
 	m.loadChannels()
+	m.loadDMs()
 	m.loadPeers()
 	m.loadLogs()
 	return tea.Batch(textinput.Blink, m.waitForEvent(), m.firstLaunchCmd())
@@ -117,6 +122,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshMsg:
 		m.updateUnread()
 		m.loadChannels()
+		m.loadDMs()
 		m.loadPeers()
 		m.loadLogs()
 		return m, m.waitForEvent()
@@ -126,7 +132,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
-		leftPanelWidth := 68 // 2 panels × (width(32) + rounded border(2))
+		leftPanelWidth := 68 // 2 panels x (width(32) + rounded border(2))
 		inputHeight := 3
 		statusHeight := 1
 		chatHeight := m.height - inputHeight - statusHeight - 4
@@ -167,6 +173,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addStatus(s)
 		if strings.HasPrefix(s, "Connected to ") {
 			m.loadChannels()
+			m.loadDMs()
 			m.loadPeers()
 		}
 
@@ -189,39 +196,55 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		hotkeyHandled := false
 		switch msg.String() {
 		case "ctrl+c", "ctrl+q":
 			return m, tea.Quit
 
 		case "tab":
+			hotkeyHandled = true
 			if m.inputMode {
 				m.inputMode = false
-				m.logPanelFocused = false
+				m.dmFocused = false
 				m.loadPeers()
-			} else if !m.logPanelFocused {
-				m.logPanelFocused = true
+			} else if !m.dmFocused {
+				m.dmFocused = true
 			} else {
 				m.inputMode = true
-				m.logPanelFocused = false
+				m.dmFocused = false
 			}
 
 		case "up":
+			hotkeyHandled = true
 			if m.inputMode {
 				m.chatView.LineUp(1)
-			} else if !m.logPanelFocused && m.selectedChan > 0 {
+			} else if m.dmFocused {
+				if m.selectedDM > 0 {
+					m.selectedDM--
+					m.loadDMMessages()
+				}
+			} else if m.selectedChan > 0 {
 				m.selectedChan--
 				m.loadMessages()
 			}
 
 		case "pgup":
+			hotkeyHandled = true
 			m.chatView.HalfViewUp()
 		case "pgdown":
+			hotkeyHandled = true
 			m.chatView.HalfViewDown()
 
 		case "down":
+			hotkeyHandled = true
 			if m.inputMode {
 				m.chatView.LineDown(1)
-			} else if !m.logPanelFocused && m.selectedChan < len(m.channelList)-1 {
+			} else if m.dmFocused {
+				if m.selectedDM < len(m.dmList)-1 {
+					m.selectedDM++
+					m.loadDMMessages()
+				}
+			} else if m.selectedChan < len(m.channelList)-1 {
 				m.selectedChan++
 				m.loadMessages()
 			}
@@ -230,30 +253,46 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.inputMode {
 				return m, m.handleInput()
 			}
+			hotkeyHandled = true
 			m.inputMode = true
 			m.loadPeers()
 
 		case "?":
+			hotkeyHandled = true
 			m.showHelp = !m.showHelp
 			if m.showHelp {
 				m.showPeers = false
+				m.showLogs = false
 			}
 
 		case "P":
+			hotkeyHandled = true
 			m.showPeers = !m.showPeers
 			if m.showPeers {
 				m.loadPeers()
 				m.showHelp = false
+				m.showLogs = false
+			}
+
+		case "L":
+			hotkeyHandled = true
+			m.showLogs = !m.showLogs
+			if m.showLogs {
+				m.loadLogs()
+				m.showHelp = false
+				m.showPeers = false
 			}
 		}
-	}
 
-	if !m.needsName && m.inputMode {
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		cmds = append(cmds, cmd)
-	} else {
-		m.chatView, _ = m.chatView.Update(msg)
+		if !hotkeyHandled && m.inputMode {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			cmds = append(cmds, cmd)
+		} else if !m.inputMode {
+			m.chatView, _ = m.chatView.Update(msg)
+		}
+
+		return m, tea.Batch(cmds...)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -298,13 +337,37 @@ func (m *Model) handleInput() tea.Cmd {
 		return nil
 	}
 
-	if m.showHelp || m.showPeers {
+	if m.showHelp || m.showPeers || m.showLogs {
 		m.showHelp = false
 		m.showPeers = false
+		m.showLogs = false
 	}
 
 	if strings.HasPrefix(text, "/") {
 		return m.handleCommand(text)
+	}
+
+	if m.dmFocused {
+		if len(m.dmList) == 0 {
+			m.addStatus("No DM selected. Use /dm <peer_id> to start a conversation.")
+			return nil
+		}
+		channelID := m.dmList[m.selectedDM].ChannelID
+		if err := m.app.SendMessage(channelID, text, "text"); err != nil {
+			m.addStatus(fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+		msg := MessageItem{
+			Sender:        m.app.Identity().DisplayName,
+			SenderPeerID:  m.app.PeerID(),
+			Content:       text,
+			Timestamp:     "now",
+			DeliveryState: "sent",
+		}
+		m.messages = append(m.messages, msg)
+		m.chatView.SetContent(m.renderMessages())
+		m.chatView.GotoBottom()
+		return nil
 	}
 
 	if len(m.channelList) == 0 {
@@ -391,7 +454,7 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 
 	case "/channel":
 		if len(parts) < 2 {
-			m.addStatus("Usage: /channel create <name> or /channel list")
+			m.addStatus("Usage: /channel create <name> | /channel private <name> [desc] | /channel list")
 			return nil
 		}
 		switch parts[1] {
@@ -415,11 +478,91 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 			}
 			m.loadMessages()
 			m.addStatus(fmt.Sprintf("Channel '%s' created", name))
+		case "private":
+			if len(parts) < 3 {
+				m.addStatus("Usage: /channel private <name> [description]")
+				return nil
+			}
+			name := parts[2]
+			desc := ""
+			if len(parts) > 3 {
+				desc = strings.Join(parts[3:], " ")
+			}
+			ch, err := m.app.CreatePrivateChannel(name, desc)
+			if err != nil {
+				m.addStatus(fmt.Sprintf("Error: %v", err))
+				return nil
+			}
+			m.loadChannels()
+			for i, c := range m.channelList {
+				if c.ChannelID == ch.ChannelID {
+					m.selectedChan = i
+					break
+				}
+			}
+			m.loadMessages()
+			m.addStatus(fmt.Sprintf("Private channel '%s' created. Use /invite <channel_id> <peer_id> to add members.", name))
 		case "list":
 			m.loadChannels()
 		default:
-			m.addStatus("Unknown channel command")
+			m.addStatus("Unknown channel command. Use: create, private, list")
 		}
+
+	case "/invite":
+		if len(parts) < 2 {
+			m.addStatus("Usage: /invite <channel_id> <peer_id> or /invite accept <invite_id>")
+			return nil
+		}
+		if parts[1] == "accept" {
+			if len(parts) < 3 {
+				m.addStatus("Usage: /invite accept <invite_id>")
+				return nil
+			}
+			inviteID := parts[2]
+			channelID, err := m.app.AcceptInvite(inviteID)
+			if err != nil {
+				m.addStatus(fmt.Sprintf("Error: %v", err))
+				return nil
+			}
+			m.loadChannels()
+			for i, c := range m.channelList {
+				if c.ChannelID == channelID {
+					m.selectedChan = i
+					break
+				}
+			}
+			m.loadMessages()
+			m.addStatus(fmt.Sprintf("Joined channel %s", channelID))
+			return nil
+		}
+		if len(parts) < 3 {
+			m.addStatus("Usage: /invite <channel_id> <peer_id>")
+			return nil
+		}
+		channelID := parts[1]
+		peerID := parts[2]
+		inviteID, err := m.app.InviteToChannel(channelID, peerID)
+		if err != nil {
+			m.addStatus(fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+		m.addStatus(fmt.Sprintf("Invite sent (%s) to %s for channel %s", inviteID, peerID, channelID))
+
+	case "/invites":
+		invites, err := m.app.ListPendingInvites()
+		if err != nil {
+			m.addStatus(fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+		if len(invites) == 0 {
+			m.addStatus("No pending invites.")
+			return nil
+		}
+		for _, inv := range invites {
+			m.addStatus(fmt.Sprintf("Invite %s from %s for channel %s",
+				inv.InviteID, inv.SenderPeerID, inv.ChannelID))
+		}
+		m.addStatus("Use /invite accept <invite_id> to accept")
 
 	case "/dm":
 		if len(parts) < 2 {
@@ -433,14 +576,16 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 			return nil
 		}
 		m.addStatus(fmt.Sprintf("DM with %s", peerID))
-		m.loadChannels()
-		for i, ch := range m.channelList {
+		m.loadDMs()
+		for i, ch := range m.dmList {
 			if ch.ChannelID == dmID {
-				m.selectedChan = i
+				m.selectedDM = i
 				break
 			}
 		}
-		m.loadMessages()
+		m.dmFocused = true
+		m.inputMode = false
+		m.loadDMMessages()
 
 	case "/myaddr":
 		peerID := m.app.PeerID()
@@ -619,6 +764,27 @@ func (m *Model) addStatus(msg string) {
 }
 
 func (m *Model) updateUnread() {
+	if m.dmFocused {
+		if len(m.dmList) == 0 {
+			return
+		}
+		curID := m.dmList[m.selectedDM].ChannelID
+		for _, ch := range m.dmList {
+			if ch.ChannelID == curID {
+				continue
+			}
+			cnt, err := m.app.CountChannelMessages(ch.ChannelID)
+			if err != nil {
+				continue
+			}
+			prev := m.lastMsgCnt[ch.ChannelID]
+			if cnt > prev {
+				m.unread[ch.ChannelID] += cnt - prev
+			}
+			m.lastMsgCnt[ch.ChannelID] = cnt
+		}
+		return
+	}
 	if len(m.channelList) == 0 {
 		return
 	}
@@ -679,7 +845,46 @@ func (m *Model) loadChannels() {
 		m.selectedChan = 0
 	}
 
-	m.loadMessages()
+	if !m.dmFocused {
+		m.loadMessages()
+	}
+}
+
+func (m *Model) loadDMs() {
+	var currentID string
+	if len(m.dmList) > 0 && m.selectedDM < len(m.dmList) {
+		currentID = m.dmList[m.selectedDM].ChannelID
+	}
+
+	dms, err := m.app.ListDMChannels()
+	if err != nil {
+		m.addStatus(fmt.Sprintf("Error loading DMs: %v", err))
+		return
+	}
+	m.dmList = dms
+
+	if currentID != "" {
+		found := false
+		for i, ch := range m.dmList {
+			if ch.ChannelID == currentID {
+				m.selectedDM = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.selectedDM = 0
+		}
+	} else if m.selectedDM >= len(m.dmList) {
+		m.selectedDM = 0
+	}
+	if m.selectedDM < 0 {
+		m.selectedDM = 0
+	}
+
+	if m.dmFocused {
+		m.loadDMMessages()
+	}
 }
 
 func (m *Model) loadMessages() {
@@ -692,6 +897,37 @@ func (m *Model) loadMessages() {
 	msgs, err := m.app.ListMessages(channelID, 500, 0)
 	if err != nil {
 		m.addStatus(fmt.Sprintf("Error loading messages: %v", err))
+		return
+	}
+
+	m.unread[channelID] = 0
+	m.lastMsgCnt[channelID] = len(msgs)
+	m.messages = nil
+	for i := len(msgs) - 1; i >= 0; i-- {
+		msg := msgs[i]
+		sender := m.app.GetPeerDisplayName(msg.SenderPeerID)
+		m.messages = append(m.messages, MessageItem{
+			Sender:        sender,
+			SenderPeerID:  msg.SenderPeerID,
+			Content:       msg.Content,
+			Timestamp:     msg.CreatedAt.Format("15:04"),
+			DeliveryState: msg.DeliveryState,
+		})
+	}
+	m.chatView.SetContent(m.renderMessages())
+	m.chatView.GotoBottom()
+}
+
+func (m *Model) loadDMMessages() {
+	if len(m.dmList) == 0 {
+		m.messages = nil
+		m.chatView.SetContent("")
+		return
+	}
+	channelID := m.dmList[m.selectedDM].ChannelID
+	msgs, err := m.app.ListMessages(channelID, 500, 0)
+	if err != nil {
+		m.addStatus(fmt.Sprintf("Error loading DM messages: %v", err))
 		return
 	}
 
@@ -731,11 +967,11 @@ func (m *Model) View() string {
 	}
 
 	channelPanel := m.renderChannelPanel()
-	logPanel := m.renderLogPanel()
+	dmPanel := m.renderDMPanel()
 	chatPanel := m.renderChatPanel()
 	statusBar := m.renderStatusBar()
 
-	leftSide := lipgloss.JoinVertical(lipgloss.Top, channelPanel, logPanel)
+	leftSide := lipgloss.JoinVertical(lipgloss.Top, channelPanel, dmPanel)
 
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, chatPanel)
 
@@ -781,7 +1017,7 @@ func (m *Model) renderNameModal() string {
 
 func (m *Model) renderChannelPanel() string {
 	style := ChannelPanelStyle
-	if !m.inputMode && !m.logPanelFocused {
+	if !m.inputMode && !m.dmFocused {
 		style = ChannelPanelFocusedStyle
 	}
 
@@ -792,12 +1028,12 @@ func (m *Model) renderChannelPanel() string {
 	var items []string
 	for i, ch := range m.channelList {
 		prefix := "# "
-		if ch.ChannelType == "dm" {
-			prefix = "@ "
+		if ch.ChannelType == "private" {
+			prefix = PrivateChannelIcon + " "
 		}
 		name := ch.Name
-		if utf8.RuneCountInString(name) > 24 {
-			name = string([]rune(name)[:24])
+		if utf8.RuneCountInString(name) > 22 {
+			name = string([]rune(name)[:22])
 		}
 		unreadStr := ""
 		if cnt := m.unread[ch.ChannelID]; cnt > 0 && i != m.selectedChan {
@@ -816,53 +1052,55 @@ func (m *Model) renderChannelPanel() string {
 	return style.Render(TitleStyle.Render("Channels") + "\n" + content + "\n" + countStyle.Render(fmt.Sprintf("%d channels", len(m.channelList))))
 }
 
-func (m *Model) renderLogPanel() string {
-	style := LogPanelStyle
-	if !m.inputMode && m.logPanelFocused {
-		style = LogPanelFocusedStyle
+func (m *Model) renderDMPanel() string {
+	style := DMPanelStyle
+	if !m.inputMode && m.dmFocused {
+		style = DMPanelFocusedStyle
 	}
 
-	var lines []string
-	// show last status entries first
-	statusStart := 0
-	if len(m.statusLog) > 3 {
-		statusStart = len(m.statusLog) - 3
+	if len(m.dmList) == 0 {
+		return style.Render(DimmedStyle.Render("No DMs\n\n/dm <peer_id>"))
 	}
-	for i := statusStart; i < len(m.statusLog); i++ {
-		entry := m.statusLog[i]
-		if utf8.RuneCountInString(entry) > 60 {
-			entry = string([]rune(entry)[:60])
+
+	var items []string
+	for i, ch := range m.dmList {
+		name := ch.Name
+		if utf8.RuneCountInString(name) > 24 {
+			name = string([]rune(name)[:24])
 		}
-		lines = append(lines, DimmedStyle.Render("∙ "+entry))
-	}
-
-	maxLogLines := 8 - (len(m.statusLog) - statusStart)
-	if maxLogLines < 0 {
-		maxLogLines = 0
-	}
-	logStart := 0
-	if len(m.logEntries) > maxLogLines {
-		logStart = len(m.logEntries) - maxLogLines
-	}
-	for i := logStart; i < len(m.logEntries); i++ {
-		entry := m.logEntries[i]
-		if utf8.RuneCountInString(entry) > 55 {
-			entry = string([]rune(entry)[:55])
+		unreadStr := ""
+		if cnt := m.unread[ch.ChannelID]; cnt > 0 {
+			unreadStr = fmt.Sprintf(" (%d)", cnt)
 		}
-		lines = append(lines, DimmedStyle.Render(entry))
+		disp := "  @ " + name + unreadStr
+		if i == m.selectedDM {
+			items = append(items, SelectedDMStyle.Render(disp))
+		} else {
+			items = append(items, DMItemStyle.Render(disp))
+		}
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return style.Render(TitleStyle.Render("Logs") + "\n" + content)
+	content := lipgloss.JoinVertical(lipgloss.Left, items...)
+	countStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Padding(0, 1)
+	return style.Render(DMTitleStyle.Render("Direct Messages") + "\n" + content + "\n" + countStyle.Render(fmt.Sprintf("%d conversations", len(m.dmList))))
 }
 
 func (m *Model) renderChatPanel() string {
 	messages := m.renderMessages()
 
 	header := ""
-	if len(m.channelList) > 0 {
+	if m.dmFocused {
+		if len(m.dmList) > 0 && m.selectedDM < len(m.dmList) {
+			ch := m.dmList[m.selectedDM]
+			header = DMHeaderStyle.Render(" @ "+ch.Name+" ") + "\n"
+		}
+	} else if len(m.channelList) > 0 && m.selectedChan < len(m.channelList) {
 		ch := m.channelList[m.selectedChan]
-		header = ChannelHeaderStyle.Render(" # "+ch.Name+" ") + "\n"
+		prefix := " # "
+		if ch.ChannelType == "private" {
+			prefix = " " + PrivateChannelIcon + " "
+		}
+		header = ChannelHeaderStyle.Render(prefix+ch.Name+" ") + "\n"
 	}
 
 	chatContent := header + "\n" + messages
@@ -870,7 +1108,7 @@ func (m *Model) renderChatPanel() string {
 
 	panel := ChatPanelStyle.Render(m.chatView.View())
 
-	if m.showHelp || m.showPeers {
+	if m.showHelp || m.showPeers || m.showLogs {
 		pw := m.chatView.Width - 4
 		ph := m.chatView.Height - 4
 		if pw < 50 {
@@ -883,12 +1121,19 @@ func (m *Model) renderChatPanel() string {
 		if m.showPeers {
 			overlayContent = m.peersView()
 		}
+		if m.showLogs {
+			overlayContent = m.logsView()
+		}
+		overlayBorderColor := lipgloss.Color("#57F287")
+		if m.showLogs {
+			overlayBorderColor = lipgloss.Color("#FEE75C")
+		}
 		overlay := lipgloss.NewStyle().
 			Width(pw).
 			Height(ph).
 			Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#57F287")).
+			BorderForeground(overlayBorderColor).
 			Render(overlayContent)
 		panel = lipgloss.Place(m.chatView.Width+2, m.chatView.Height+2,
 			lipgloss.Center, lipgloss.Center, overlay)
@@ -898,7 +1143,7 @@ func (m *Model) renderChatPanel() string {
 }
 
 func (m *Model) renderMessages() string {
-	if m.showHelp || m.showPeers {
+	if m.showHelp || m.showPeers || m.showLogs {
 		return ""
 	}
 	if len(m.messages) == 0 {
@@ -964,8 +1209,17 @@ func (m *Model) renderStatusBar() string {
 	}
 
 	ctx := ""
-	if len(m.channelList) > 0 {
-		ctx = "#" + m.channelList[m.selectedChan].Name
+	if m.dmFocused {
+		if len(m.dmList) > 0 && m.selectedDM < len(m.dmList) {
+			ctx = "@ " + m.dmList[m.selectedDM].Name
+		}
+	} else if len(m.channelList) > 0 && m.selectedChan < len(m.channelList) {
+		ch := m.channelList[m.selectedChan]
+		prefix := "#"
+		if ch.ChannelType == "private" {
+			prefix = PrivateChannelIcon
+		}
+		ctx = prefix + ch.Name
 	}
 
 	statusText := m.statusText
@@ -999,34 +1253,39 @@ func (m *Model) renderStatusBar() string {
 
 func (m *Model) helpView() string {
 	return HelpStyle.Render(`Commands:
-  /help             Show this help
-  /myaddr           Show your local addresses
-  /publicip         Look up your public IP
-  /connect <addr>   Connect to a peer directly
-  /connect <index>  Reconnect to a saved connection
-  /connections      List saved connections
-  /relay <addr>     Connect via a relay peer
-  /tunnel <addr>    Create TCP tunnel
-  /disconnect       Disconnect all peers
-  /peers            List known peers
-  /channel create   Create a channel
-  /dm <peer>        Open direct message
-  /name [name]      Show or set your display name
-  /profile          Show your profile
-  /quit             Quit
+  /help               Show this help
+  /myaddr             Show your local addresses
+  /publicip           Look up your public IP
+  /connect <addr>     Connect to a peer directly
+  /connect <index>    Reconnect to a saved connection
+  /connections        List saved connections
+  /relay <addr>       Connect via a relay peer
+  /tunnel <addr>      Create TCP tunnel
+  /disconnect         Disconnect all peers
+  /peers              List known peers
+  /channel create     Create a public channel
+  /channel private    Create a private channel (invite only)
+  /invite <ch> <peer> Invite peer to private channel
+  /invite accept <id> Accept a channel invite
+  /invites            List pending invites
+  /dm <peer>          Open direct message
+  /name [name]        Show or set your display name
+  /profile            Show your profile
+  /quit               Quit
 
 Keys:
-  Tab        Cycle: input ─ channels ─ logs
-  Arrows     Navigate channels (nav mode)
+  Tab        Cycle: input -> channels -> DMs
+  Arrows     Navigate channels/DMs (nav mode)
   Enter      Send message / confirm
   ?          Toggle help
   P          Toggle peers
+  L          Toggle logs
   Ctrl+C     Quit
 
 Internet:
-  /publicip         Show your public IP
-  /tunnel <addr>    TCP tunnel via a public server
-  /relay <addr>     libp2p relay (requires public server)`)
+  /publicip           Show your public IP
+  /tunnel <addr>      TCP tunnel via a public server
+  /relay <addr>       libp2p relay (requires public server)`)
 }
 
 func (m *Model) peersView() string {
@@ -1042,6 +1301,42 @@ func (m *Model) peersView() string {
 		items = append(items, fmt.Sprintf("  %s (%s) [%s]", p.DisplayName, p.Status, id))
 	}
 	return strings.Join(items, "\n")
+}
+
+func (m *Model) logsView() string {
+	var lines []string
+	statusStart := 0
+	if len(m.statusLog) > 3 {
+		statusStart = len(m.statusLog) - 3
+	}
+	for i := statusStart; i < len(m.statusLog); i++ {
+		entry := m.statusLog[i]
+		if utf8.RuneCountInString(entry) > 60 {
+			entry = string([]rune(entry)[:60])
+		}
+		lines = append(lines, DimmedStyle.Render("∙ "+entry))
+	}
+
+	maxLogLines := 12 - (len(m.statusLog) - statusStart)
+	if maxLogLines < 0 {
+		maxLogLines = 0
+	}
+	logStart := 0
+	if len(m.logEntries) > maxLogLines {
+		logStart = len(m.logEntries) - maxLogLines
+	}
+	for i := logStart; i < len(m.logEntries); i++ {
+		entry := m.logEntries[i]
+		if utf8.RuneCountInString(entry) > 55 {
+			entry = string([]rune(entry)[:55])
+		}
+		lines = append(lines, DimmedStyle.Render(entry))
+	}
+
+	if len(lines) == 0 {
+		return DimmedStyle.Render("  No log entries.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func extractPort(addr string) int {

@@ -3,6 +3,8 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
+	PrivateChannelIcon = "\U0001F512"
+
 	AppStyle = lipgloss.NewStyle().Padding(0, 1)
 
 	ChannelPanelStyle = lipgloss.NewStyle().
@@ -14,14 +16,14 @@ var (
 					Border(lipgloss.RoundedBorder()).
 					BorderForeground(lipgloss.Color("#57F287"))
 
-	LogPanelStyle = lipgloss.NewStyle().
+	DMPanelStyle = lipgloss.NewStyle().
 			Width(32).
 			Border(lipgloss.RoundedBorder())
 
-	LogPanelFocusedStyle = lipgloss.NewStyle().
+	DMPanelFocusedStyle = lipgloss.NewStyle().
 				Width(32).
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#FEE75C"))
+				BorderForeground(lipgloss.Color("#00E5FF"))
 
 	ChatPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder())
@@ -44,6 +46,12 @@ var (
 			Padding(0, 1).
 			Bold(true)
 
+	DMTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#00E5FF")).
+			Padding(0, 1).
+			Bold(true)
+
 	SelectedChannelStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")).
 				Background(lipgloss.Color("#57F287")).
@@ -51,6 +59,14 @@ var (
 				Bold(true)
 
 	ChannelItemStyle = lipgloss.NewStyle().Padding(0, 1)
+
+	SelectedDMStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#00E5FF")).
+			Padding(0, 1).
+			Bold(true)
+
+	DMItemStyle = lipgloss.NewStyle().Padding(0, 1)
 
 	senderPalette = []string{
 		"#57F287", // green
@@ -99,6 +115,12 @@ var (
 				Background(lipgloss.Color("#ED4245")).
 				Padding(0, 1).
 				Bold(true)
+
+	DMHeaderStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#00E5FF")).
+			Padding(0, 1).
+			Bold(true)
 
 )
 

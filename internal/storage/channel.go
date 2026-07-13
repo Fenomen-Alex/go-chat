@@ -128,3 +128,45 @@ func (s *Store) ArchiveChannel(channelID string) error {
 		time.Now().UTC(), channelID)
 	return err
 }
+
+func (s *Store) ListDMChannels() ([]*Channel, error) {
+	rows, err := s.db.Query(`SELECT id, channel_id, org_id, name, topic, description, channel_type, category, parent_category, read_only, archived, muted, favorite, pinned, slow_mode, retention, attachment_limit, emoji_reactions, created_at, updated_at
+		FROM channels WHERE channel_type='dm' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list dm channels: %w", err)
+	}
+	defer rows.Close()
+
+	var channels []*Channel
+	for rows.Next() {
+		ch := &Channel{}
+		if err := rows.Scan(&ch.ID, &ch.ChannelID, &ch.OrgID, &ch.Name, &ch.Topic, &ch.Description, &ch.ChannelType,
+			&ch.Category, &ch.ParentCategory, &ch.ReadOnly, &ch.Archived, &ch.Muted, &ch.Favorite, &ch.Pinned,
+			&ch.SlowMode, &ch.Retention, &ch.AttachmentLimit, &ch.EmojiReactions, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan channel: %w", err)
+		}
+		channels = append(channels, ch)
+	}
+	return channels, rows.Err()
+}
+
+func (s *Store) ListPrivateChannels() ([]*Channel, error) {
+	rows, err := s.db.Query(`SELECT id, channel_id, org_id, name, topic, description, channel_type, category, parent_category, read_only, archived, muted, favorite, pinned, slow_mode, retention, attachment_limit, emoji_reactions, created_at, updated_at
+		FROM channels WHERE channel_type='private' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list private channels: %w", err)
+	}
+	defer rows.Close()
+
+	var channels []*Channel
+	for rows.Next() {
+		ch := &Channel{}
+		if err := rows.Scan(&ch.ID, &ch.ChannelID, &ch.OrgID, &ch.Name, &ch.Topic, &ch.Description, &ch.ChannelType,
+			&ch.Category, &ch.ParentCategory, &ch.ReadOnly, &ch.Archived, &ch.Muted, &ch.Favorite, &ch.Pinned,
+			&ch.SlowMode, &ch.Retention, &ch.AttachmentLimit, &ch.EmojiReactions, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan channel: %w", err)
+		}
+		channels = append(channels, ch)
+	}
+	return channels, rows.Err()
+}
