@@ -114,22 +114,3 @@ func (c *Cipher) Decrypt(data []byte) ([]byte, error) {
 
 	return plaintext, nil
 }
-
-func ed25519PrivateKeyToCurve25519(priv ed25519.PrivateKey) []byte {
-	h := sha256.New()
-	h.Write(priv[:32])
-	digest := h.Sum(nil)
-	digest[0] &= 248
-	digest[31] &= 127
-	digest[31] |= 64
-	return digest
-}
-
-func ed25519PublicKeyToCurve25519(pub ed25519.PublicKey) ([]byte, error) {
-	if len(pub) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid ed25519 public key length")
-	}
-	cp := make([]byte, 32)
-	copy(cp, pub)
-	return cp, nil
-}

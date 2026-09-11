@@ -9,7 +9,6 @@ type Config struct {
 	Theme     string          `yaml:"theme" json:"theme" toml:"theme"`
 	Notify    NotifyConfig    `yaml:"notifications" json:"notifications" toml:"notifications"`
 	Logging   LoggingConfig   `yaml:"logging" json:"logging" toml:"logging"`
-	Security  SecurityConfig  `yaml:"security" json:"security" toml:"security"`
 }
 
 type IdentityConfig struct {
@@ -28,8 +27,7 @@ type NetworkConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path    string `yaml:"path" json:"path" toml:"path"`
-	Encrypt bool   `yaml:"encrypt" json:"encrypt" toml:"encrypt"`
+	Path string `yaml:"path" json:"path" toml:"path"`
 }
 
 type DownloadsConfig struct {
@@ -53,11 +51,6 @@ type LoggingConfig struct {
 	Rotate bool   `yaml:"rotate" json:"rotate" toml:"rotate"`
 }
 
-type SecurityConfig struct {
-	KeyRotationDays int  `yaml:"key_rotation_days" json:"key_rotation_days" toml:"key_rotation_days"`
-	EncryptDatabase bool `yaml:"encrypt_database" json:"encrypt_database" toml:"encrypt_database"`
-}
-
 func Default() *Config {
 	return &Config{
 		Identity: IdentityConfig{
@@ -72,8 +65,7 @@ func Default() *Config {
 			EnableTCP:   true,
 		},
 		Database: DatabaseConfig{
-			Path:    "chat.db",
-			Encrypt: false,
+			Path: "chat.db",
 		},
 		Downloads: DownloadsConfig{
 			Path:    "downloads",
@@ -92,10 +84,6 @@ func Default() *Config {
 			Level:  "info",
 			File:   "",
 			Rotate: true,
-		},
-		Security: SecurityConfig{
-			KeyRotationDays: 30,
-			EncryptDatabase: false,
 		},
 	}
 }

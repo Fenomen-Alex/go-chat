@@ -18,6 +18,7 @@ type Message struct {
 	ReplyTo       string `json:"reply_to,omitempty"`
 	Encrypted     bool   `json:"encrypted,omitempty"`
 	EncryptedData []byte `json:"encrypted_data,omitempty"`
+	Signature     []byte `json:"signature,omitempty"`
 	Timestamp     int64  `json:"timestamp"`
 }
 

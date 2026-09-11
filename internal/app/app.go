@@ -247,7 +247,23 @@ func (a *App) IsReservedDisplayName(name string) bool {
 }
 
 func (a *App) SendMessage(channelID, content, contentType string) error {
-	msgID := fmt.Sprintf("msg_%s_%d", a.PeerID(), time.Now().UnixNano())
+	now := time.Now().UTC()
+	msgID := fmt.Sprintf("msg_%s_%d", a.PeerID(), now.UnixNano())
+
+	networkMsg := &network.Message{
+		Type:        "message",
+		SenderID:    a.PeerID(),
+		ChannelID:   channelID,
+		MessageID:   msgID,
+		Content:     content,
+		ContentType: contentType,
+		Timestamp:   now.UnixMilli(),
+	}
+	rawPrivateKey, err := a.libp2pKey.Raw()
+	if err != nil {
+		return fmt.Errorf("get identity private key: %w", err)
+	}
+	network.SignMessage(rawPrivateKey, networkMsg)
 
 	msg := &storage.Message{
 		MessageID:     msgID,
@@ -255,9 +271,10 @@ func (a *App) SendMessage(channelID, content, contentType string) error {
 		SenderPeerID:  a.PeerID(),
 		Content:       content,
 		ContentType:   contentType,
+		Signature:     networkMsg.Signature,
 		DeliveryState: "sent",
-		CreatedAt:     time.Now().UTC(),
-		UpdatedAt:     time.Now().UTC(),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	if err := a.Store.SaveMessage(msg); err != nil {
@@ -265,15 +282,7 @@ func (a *App) SendMessage(channelID, content, contentType string) error {
 	}
 
 	if a.Node != nil {
-		a.Node.Broadcast(&network.Message{
-			Type:        "message",
-			SenderID:    a.PeerID(),
-			ChannelID:   channelID,
-			MessageID:   msgID,
-			Content:     content,
-			ContentType: contentType,
-			Timestamp:   time.Now().UnixMilli(),
-		})
+		a.Node.Broadcast(networkMsg)
 	}
 
 	return nil

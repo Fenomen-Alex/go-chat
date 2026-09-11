@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go-chat/internal/config"
@@ -229,10 +230,14 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(message_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channel_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_channel_members_peer ON channel_members(peer_id)`,
+		`ALTER TABLE messages ADD COLUMN signature BLOB`,
 	}
 
 	for _, q := range tables {
 		if _, err := s.db.Exec(q); err != nil {
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
 			return fmt.Errorf("exec migration: %w", err)
 		}
 	}

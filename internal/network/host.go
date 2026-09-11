@@ -40,8 +40,9 @@ type Node struct {
 	Cancel    context.CancelFunc
 	mdns      mdns.Service
 
-	sessionKeys map[string][]byte
-	sessionMu   sync.RWMutex
+	sessionKeys        map[string][]byte
+	sessionMu          sync.RWMutex
+	identityPrivateKey []byte
 }
 
 func NewNode(privKey libp2pcrypto.PrivKey, cfg *config.NetworkConfig, log *logging.Logger, store *storage.Store, refreshCh chan struct{}) (*Node, error) {
@@ -88,14 +89,15 @@ func NewNode(privKey libp2pcrypto.PrivKey, cfg *config.NetworkConfig, log *loggi
 	}
 
 	node := &Node{
-		Host:        h,
-		Config:      cfg,
-		Logger:      log,
-		Store:       store,
-		RefreshCh:   refreshCh,
-		Ctx:         ctx,
-		Cancel:      cancel,
-		sessionKeys: make(map[string][]byte),
+		Host:               h,
+		Config:             cfg,
+		Logger:             log,
+		Store:              store,
+		RefreshCh:          refreshCh,
+		Ctx:                ctx,
+		Cancel:             cancel,
+		sessionKeys:        make(map[string][]byte),
+		identityPrivateKey: ed25519PrivateKeyBytes(privKey),
 	}
 
 	h.SetStreamHandler(ProtocolID, node.handleStream)
@@ -268,9 +270,10 @@ func (n *Node) exchangeKeys(s network.Stream, peerID peer.ID, r *bufio.Reader) {
 	pubB64 := base64.StdEncoding.EncodeToString(ephPub)
 	handler := NewStreamHandler(n)
 	handler.SendMessage(s, &Message{
-		Type:     "key_exchange",
-		SenderID: n.Host.ID().String(),
-		Content:  pubB64,
+		Type:      "key_exchange",
+		SenderID:  n.Host.ID().String(),
+		Content:   pubB64,
+		Timestamp: time.Now().UnixMilli(),
 	})
 
 	s.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -284,6 +287,20 @@ func (n *Node) exchangeKeys(s network.Stream, peerID peer.ID, r *bufio.Reader) {
 	if err := json.Unmarshal(ackData, &ackMsg); err != nil || ackMsg.Type != "key_exchange_ack" {
 		n.Logger.Debug("invalid key exchange ack from %s", peerID.String())
 		return
+	}
+
+	if !VerifyKeyExchangeSignature(n, &ackMsg, peerID.String()) {
+		n.Logger.Debug("invalid key exchange ack signature from %s", peerID.String())
+		return
+	}
+
+	if ackMsg.Timestamp != 0 {
+		ackTime := time.UnixMilli(ackMsg.Timestamp)
+		now := time.Now().UTC()
+		if ackTime.Before(now.Add(-maxClockSkew)) || ackTime.After(now.Add(maxClockSkew)) {
+			n.Logger.Debug("key exchange ack timestamp out of range from %s", peerID.String())
+			return
+		}
 	}
 
 	peerPub, err := base64.StdEncoding.DecodeString(ackMsg.Content)
@@ -322,8 +339,9 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 	n.exchangeKeys(s, peerID, r)
 
 	handler.SendMessage(s, &Message{
-		Type:     "sync_request",
-		SenderID: n.Host.ID().String(),
+		Type:      "sync_request",
+		SenderID:  n.Host.ID().String(),
+		Timestamp: time.Now().UnixMilli(),
 	})
 
 	if n.Store != nil {
@@ -345,13 +363,15 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 				Content:     msg.Content,
 				ContentType: msg.ContentType,
 				Timestamp:   msg.CreatedAt.UnixMilli(),
+				Signature:   msg.Signature,
 			})
 		}
 	}
 
 	handler.SendMessage(s, &Message{
-		Type:     "sync_complete",
-		SenderID: n.Host.ID().String(),
+		Type:      "sync_complete",
+		SenderID:  n.Host.ID().String(),
+		Timestamp: time.Now().UnixMilli(),
 	})
 
 	timeoutCnt := 0
@@ -381,7 +401,7 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 		switch msg.Type {
 		case "sync_org":
 			if n.Store != nil {
-				handler.handleSyncOrg(&msg)
+				handler.handleSyncOrg(&msg, peerID.String())
 			}
 		case "sync_channel":
 			if n.Store != nil {
@@ -394,6 +414,10 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 		case "message":
 			if n.Store != nil {
 				handler.handleSyncMessage(&msg, peerID.String())
+			}
+		case "sync_channel_member":
+			if n.Store != nil {
+				handler.handleSyncChannelMember(&msg, peerID.String())
 			}
 		}
 		if n.RefreshCh != nil {
@@ -434,4 +458,25 @@ func (n *Node) ReconnectWithBackoff(ctx context.Context, pi peer.AddrInfo) error
 	}
 
 	return fmt.Errorf("reconnect failed after %d attempts", maxAttempts)
+}
+
+func ed25519PrivateKeyBytes(privKey libp2pcrypto.PrivKey) []byte {
+	if ed25519Priv, ok := privKey.(*libp2pcrypto.Ed25519PrivateKey); ok {
+		raw, err := ed25519Priv.Raw()
+		if err == nil {
+			return raw
+		}
+	}
+	return nil
+}
+
+func VerifyKeyExchangeSignature(node *Node, msg *Message, peerID string) bool {
+	if len(msg.Signature) == 0 {
+		return false
+	}
+	pubKey, ok := GetPublicKeyFromPeerstore(node.Host, peerID)
+	if !ok {
+		return false
+	}
+	return VerifyMessageSignature(pubKey, msg)
 }

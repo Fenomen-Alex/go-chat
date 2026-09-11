@@ -20,6 +20,8 @@ import (
 
 var errLineTooLong = errors.New("line exceeds max size")
 
+const maxClockSkew = 5 * time.Minute
+
 func readLine(r *bufio.Reader, max int) ([]byte, error) {
 	var total int
 	for {
@@ -51,8 +53,16 @@ func NewStreamHandler(node *Node) *StreamHandler {
 func (h *StreamHandler) Handle(s network.Stream) {
 	defer s.Close()
 
-	peerID := s.Conn().RemotePeer().String()
+	remotePeer := s.Conn().RemotePeer()
+	peerID := remotePeer.String()
 	r := bufio.NewReader(s)
+
+	if existing := h.node.Host.Peerstore().PubKey(remotePeer); existing == nil {
+		if pubKey := s.Conn().RemotePublicKey(); pubKey != nil {
+			_ = h.node.Host.Peerstore().AddPubKey(remotePeer, pubKey)
+		}
+		h.ensurePeerExists(peerID)
+	}
 
 	for {
 		s.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -126,18 +136,20 @@ func (h *StreamHandler) handleMessage(msg *Message, s network.Stream) {
 	remotePeerID := h.remotePeerID(s)
 	h.node.Logger.Info("received %s from %s", msg.Type, remotePeerID)
 
-	if msg.SenderID != "" && msg.SenderID != remotePeerID {
-		known, err := h.node.Store.GetPeer(msg.SenderID)
-		if err == nil && known == nil {
-			h.node.Logger.Debug("rejected %s from %s claiming unknown peer %s", msg.Type, remotePeerID, msg.SenderID)
-			return
-		}
+	if !h.verifySignature(msg, remotePeerID) {
+		h.node.Logger.Debug("rejected %s from %s: invalid signature", msg.Type, remotePeerID)
+		return
+	}
+
+	if msg.Type != "key_exchange" && !h.verifyTimestamp(msg) {
+		h.node.Logger.Debug("rejected %s from %s: timestamp out of range", msg.Type, remotePeerID)
+		return
 	}
 
 	switch msg.Type {
 	case "sync_org":
 		if h.node.Store != nil {
-			h.handleSyncOrg(msg)
+			h.handleSyncOrg(msg, remotePeerID)
 		}
 	case "sync_channel":
 		if h.node.Store != nil {
@@ -161,7 +173,7 @@ func (h *StreamHandler) handleMessage(msg *Message, s network.Stream) {
 		}
 	case "sync_channel_member":
 		if h.node.Store != nil {
-			h.handleSyncChannelMember(msg)
+			h.handleSyncChannelMember(msg, remotePeerID)
 			h.notifyRefresh()
 		}
 	default:
@@ -196,6 +208,7 @@ func (h *StreamHandler) sendFullState(s network.Stream) {
 				Content:     m.Content,
 				ContentType: m.ContentType,
 				Timestamp:   m.CreatedAt.UnixMilli(),
+				Signature:   m.Signature,
 			}); err != nil {
 				h.node.Logger.Warn("send message during full state sync: %v", err)
 			}
@@ -387,6 +400,7 @@ func (h *StreamHandler) handleSyncMessage(msg *Message, remotePeerID string) {
 		SenderPeerID:  msg.SenderID,
 		Content:       msg.Content,
 		ContentType:   msg.ContentType,
+		Signature:     msg.Signature,
 		DeliveryState: "received",
 		CreatedAt:     time.UnixMilli(msg.Timestamp).UTC(),
 		UpdatedAt:     time.Now().UTC(),
@@ -396,7 +410,7 @@ func (h *StreamHandler) handleSyncMessage(msg *Message, remotePeerID string) {
 	}
 }
 
-func (h *StreamHandler) handleSyncOrg(msg *Message) {
+func (h *StreamHandler) handleSyncOrg(msg *Message, remotePeerID string) {
 	if msg.OrgID == "" {
 		return
 	}
@@ -405,6 +419,13 @@ func (h *StreamHandler) handleSyncOrg(msg *Message) {
 		h.node.Logger.Warn("get organization %s: %v", msg.OrgID, err)
 	}
 	if existing != nil {
+		if msg.SenderID != existing.OwnerPeerID {
+			h.node.Logger.Debug("rejected sync_org from %s for org owned by %s", msg.SenderID, existing.OwnerPeerID)
+		}
+		return
+	}
+	if msg.SenderID != remotePeerID {
+		h.node.Logger.Debug("rejected sync_org creation from %s claiming %s", remotePeerID, msg.SenderID)
 		return
 	}
 	org := &storage.Organization{
@@ -436,6 +457,30 @@ func (h *StreamHandler) handleSyncChannel(msg *Message, s network.Stream) {
 	if existing != nil {
 		return
 	}
+	remotePeerID := h.remotePeerID(s)
+
+	if msg.OrgID != "" {
+		org, err := h.node.Store.GetOrganization(msg.OrgID)
+		if err == nil && org != nil {
+			if msg.SenderID != org.OwnerPeerID {
+				membership, err := h.node.Store.GetMembership(msg.SenderID, msg.OrgID)
+				if err != nil {
+					h.node.Logger.Warn("get membership: %v", err)
+				}
+				if membership == nil {
+					h.node.Logger.Debug("rejected sync_channel from %s: not authorized for org", msg.SenderID)
+					return
+				}
+			}
+		} else if msg.SenderID != remotePeerID {
+			h.node.Logger.Debug("rejected sync_channel from %s for unknown org", msg.SenderID)
+			return
+		}
+	} else if msg.SenderID != remotePeerID {
+		h.node.Logger.Debug("rejected sync_channel from %s: not creator", msg.SenderID)
+		return
+	}
+
 	ch := &storage.Channel{
 		ChannelID:   msg.ChannelID,
 		OrgID:       msg.OrgID,
@@ -514,6 +559,12 @@ func (h *StreamHandler) SendMessage(s network.Stream, msg *Message) error {
 	sendMsg := *msg
 	peerID := s.Conn().RemotePeer().String()
 
+	if sendMsg.SenderID == h.node.Host.ID().String() && len(sendMsg.Signature) == 0 {
+		if len(h.node.identityPrivateKey) > 0 {
+			SignMessage(h.node.identityPrivateKey, &sendMsg)
+		}
+	}
+
 	if key, ok := h.node.GetSessionKey(peerID); ok && len(key) > 0 {
 		c := crypto.NewCipher(key)
 		encrypted, err := c.Encrypt([]byte(sendMsg.Content))
@@ -557,10 +608,78 @@ func (h *StreamHandler) DecryptMessage(msg *Message, peerID string) {
 	msg.EncryptedData = nil
 }
 
+func (h *StreamHandler) verifySignature(msg *Message, remotePeerID string) bool {
+	if len(msg.Signature) == 0 {
+		return false
+	}
+	pubKey := h.getSenderPublicKey(msg.SenderID, remotePeerID)
+	if pubKey == nil {
+		return false
+	}
+	return VerifyMessageSignature(pubKey, msg)
+}
+
+func (h *StreamHandler) getSenderPublicKey(senderID, remotePeerID string) []byte {
+	if senderID == "" {
+		return nil
+	}
+	peer, err := h.node.Store.GetPeer(senderID)
+	if err == nil && peer != nil && len(peer.PublicKey) > 0 {
+		return peer.PublicKey
+	}
+	if senderID == remotePeerID {
+		if pubKey, ok := GetPublicKeyFromPeerstore(h.node.Host, remotePeerID); ok {
+			return pubKey
+		}
+	}
+	return nil
+}
+
+func (h *StreamHandler) verifyKeyExchangeSignature(msg *Message, remotePeerID string) bool {
+	if len(msg.Signature) == 0 {
+		return false
+	}
+	senderID := msg.SenderID
+	if senderID == "" {
+		senderID = remotePeerID
+	}
+	pubKey, ok := GetPublicKeyFromPeerstore(h.node.Host, senderID)
+	if !ok {
+		return false
+	}
+	return VerifyMessageSignature(pubKey, msg)
+}
+
+func (h *StreamHandler) verifyTimestamp(msg *Message) bool {
+	if msg.Timestamp == 0 {
+		return false
+	}
+	msgTime := time.UnixMilli(msg.Timestamp)
+	now := time.Now().UTC()
+	if msgTime.Before(now.Add(-maxClockSkew)) || msgTime.After(now.Add(maxClockSkew)) {
+		return false
+	}
+	return true
+}
+
 func (h *StreamHandler) handleKeyExchange(s network.Stream, peerID string, msg *Message) {
+	remotePeerID := h.remotePeerID(s)
+	if !h.verifyKeyExchangeSignature(msg, remotePeerID) {
+		h.node.Logger.Debug("invalid key exchange signature from %s", remotePeerID)
+		return
+	}
+	if msg.Timestamp != 0 {
+		msgTime := time.UnixMilli(msg.Timestamp)
+		now := time.Now().UTC()
+		if msgTime.Before(now.Add(-maxClockSkew)) || msgTime.After(now.Add(maxClockSkew)) {
+			h.node.Logger.Debug("key exchange timestamp out of range from %s", remotePeerID)
+			return
+		}
+	}
+
 	peerPub, err := base64.StdEncoding.DecodeString(msg.Content)
 	if err != nil || len(peerPub) != 32 {
-		h.node.Logger.Debug("invalid key_exchange from %s", peerID)
+		h.node.Logger.Debug("invalid key_exchange from %s", remotePeerID)
 		return
 	}
 
@@ -572,9 +691,10 @@ func (h *StreamHandler) handleKeyExchange(s network.Stream, peerID string, msg *
 
 	pubB64 := base64.StdEncoding.EncodeToString(ephPub)
 	h.SendMessage(s, &Message{
-		Type:     "key_exchange_ack",
-		SenderID: h.node.Host.ID().String(),
-		Content:  pubB64,
+		Type:      "key_exchange_ack",
+		SenderID:  h.node.Host.ID().String(),
+		Content:   pubB64,
+		Timestamp: time.Now().UnixMilli(),
 	})
 
 	shared, err := crypto.ComputeSharedSecret(ephPriv, peerPub)
@@ -590,8 +710,8 @@ func (h *StreamHandler) handleKeyExchange(s network.Stream, peerID string, msg *
 		return
 	}
 
-	h.node.SetSessionKey(peerID, key)
-	h.node.Logger.Debug("key exchange complete with %s", peerID)
+	h.node.SetSessionKey(remotePeerID, key)
+	h.node.Logger.Debug("key exchange complete with %s", remotePeerID)
 }
 
 func (h *StreamHandler) handleSyncInvite(msg *Message) {
@@ -625,7 +745,7 @@ func (h *StreamHandler) handleSyncInvite(msg *Message) {
 	h.node.Logger.Info("received channel invite from %s for channel %s", msg.SenderID, msg.ChannelID)
 }
 
-func (h *StreamHandler) handleSyncChannelMember(msg *Message) {
+func (h *StreamHandler) handleSyncChannelMember(msg *Message, remotePeerID string) {
 	if msg.ChannelID == "" || msg.MemberPeerID == "" {
 		return
 	}
@@ -636,6 +756,14 @@ func (h *StreamHandler) handleSyncChannelMember(msg *Message) {
 	if existing == nil {
 		return
 	}
+	member, err := h.node.Store.IsChannelMember(msg.ChannelID, msg.SenderID)
+	if err != nil {
+		h.node.Logger.Warn("check sender membership: %v", err)
+	}
+	if !member {
+		h.node.Logger.Debug("rejected sync_channel_member from %s: not a member", msg.SenderID)
+		return
+	}
 	role := msg.MemberRole
 	if role == "" {
 		role = "member"
@@ -644,5 +772,3 @@ func (h *StreamHandler) handleSyncChannelMember(msg *Message) {
 		h.node.Logger.Warn("save synced channel member: %v", err)
 	}
 }
-
-

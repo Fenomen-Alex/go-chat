@@ -18,7 +18,7 @@
 ## Features
 
 - **No servers, no accounts** — Pure P2P. Every client is an equal peer.
-- **End-to-end encrypted** — X25519 key exchange, ChaCha20-Poly1305 AEAD, HKDF session keys.
+- **End-to-end encrypted** — X25519 key exchange, AES-256-GCM AEAD, HKDF session keys.
 - **Local-first** — All data stored in SQLite. You own everything.
 - **Terminal UI** — Built with Bubble Tea, Lip Gloss, and Bubbles.
 - **libp2p networking** — TCP, QUIC, mDNS discovery, relay, NAT traversal, hole punching.
@@ -135,10 +135,6 @@ logging:
   level: info                  # trace, debug, info, warn, error
   file: ""
   rotate: true
-
-security:
-  key_rotation_days: 30
-  encrypt_database: false
 ```
 
 Override with CLI flags:
@@ -363,10 +359,9 @@ internal/
   app/               Application coordinator
   config/            Configuration (YAML/JSON)
   logging/           Logging (levels, rotation)
-  crypto/            X25519, Ed25519, ChaCha20-Poly1305, HKDF
+  crypto/            X25519, Ed25519, AES-256-GCM, HKDF
   storage/           SQLite database layer
   network/           libp2p host, streams, mDNS
-  protocol/          Message envelopes, encryption
   discovery/         Peer discovery (bootstrap, DHT)
   peer/              Peer management
   organization/      Organization CRUD
@@ -399,10 +394,9 @@ Local SQLite database (`chat.db`) with the following tables:
 ## Security
 
 - **Transport** — Encrypted via libp2p's Noise protocol
-- **Messages** — Encrypted with ChaCha20-Poly1305 using session keys derived from X25519 + HKDF
+- **Messages** — Encrypted with AES-256-GCM using session keys derived from X25519 + HKDF
 - **Identity** — Ed25519 keypairs, verified via fingerprints
-- **Forward secrecy** — Unique session keys with rotation
-- **Replay protection** — Timestamps and nonce verification
+- **Message authenticity** — Per-message Ed25519 signatures
 - **No telemetry, no analytics, no cloud**
 
 ## Development
@@ -416,7 +410,6 @@ internal/tui/             Bubble Tea model, styles, panels
 internal/network/         libp2p host setup, stream handler
 internal/crypto/          Cryptographic primitives
 internal/storage/         SQLite schema, queries, migrations
-internal/protocol/        Message encoding and encryption
 internal/config/          Config parsing (YAML, JSON)
 internal/logging/         Structured logging
 internal/discovery/       Peer discovery (mDNS, DHT, bootstrap)

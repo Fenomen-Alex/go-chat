@@ -19,13 +19,14 @@ type Message struct {
 	Deleted       bool      `json:"deleted"`
 	Pinned        bool      `json:"pinned"`
 	DeliveryState string    `json:"delivery_state"`
+	Signature     []byte    `json:"signature"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func (s *Store) SaveMessage(msg *Message) error {
-	_, err := s.db.Exec(`INSERT INTO messages (message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO messages (message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at, signature)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(message_id) DO UPDATE SET
 			content=excluded.content,
 			edited=excluded.edited,
@@ -33,7 +34,7 @@ func (s *Store) SaveMessage(msg *Message) error {
 			pinned=excluded.pinned,
 			updated_at=excluded.updated_at`,
 		msg.MessageID, msg.ChannelID, msg.SenderPeerID, msg.Content, msg.ContentType, msg.Encrypted,
-		msg.ReplyTo, msg.Edited, msg.Deleted, msg.Pinned, msg.DeliveryState, msg.CreatedAt, msg.UpdatedAt)
+		msg.ReplyTo, msg.Edited, msg.Deleted, msg.Pinned, msg.DeliveryState, msg.CreatedAt, msg.UpdatedAt, msg.Signature)
 	if err != nil {
 		return fmt.Errorf("save message: %w", err)
 	}
@@ -42,11 +43,11 @@ func (s *Store) SaveMessage(msg *Message) error {
 
 func (s *Store) GetMessage(messageID string) (*Message, error) {
 	msg := &Message{}
-	err := s.db.QueryRow(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at
+	err := s.db.QueryRow(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at, signature
 		FROM messages WHERE message_id=?`, messageID).Scan(
 		&msg.ID, &msg.MessageID, &msg.ChannelID, &msg.SenderPeerID, &msg.Content, &msg.ContentType,
 		&msg.Encrypted, &msg.ReplyTo, &msg.Edited, &msg.Deleted, &msg.Pinned, &msg.DeliveryState,
-		&msg.CreatedAt, &msg.UpdatedAt)
+		&msg.CreatedAt, &msg.UpdatedAt, &msg.Signature)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -60,7 +61,7 @@ func (s *Store) ListMessages(channelID string, limit, offset int) ([]*Message, e
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := s.db.Query(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at
+	rows, err := s.db.Query(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at, signature
 		FROM messages WHERE channel_id=? AND deleted=0 ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 		channelID, limit, offset)
 	if err != nil {
@@ -73,7 +74,7 @@ func (s *Store) ListMessages(channelID string, limit, offset int) ([]*Message, e
 		msg := &Message{}
 		if err := rows.Scan(&msg.ID, &msg.MessageID, &msg.ChannelID, &msg.SenderPeerID, &msg.Content, &msg.ContentType,
 			&msg.Encrypted, &msg.ReplyTo, &msg.Edited, &msg.Deleted, &msg.Pinned, &msg.DeliveryState,
-			&msg.CreatedAt, &msg.UpdatedAt); err != nil {
+			&msg.CreatedAt, &msg.UpdatedAt, &msg.Signature); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		msgs = append(msgs, msg)
@@ -85,7 +86,7 @@ func (s *Store) ListAllMessages(limit int) ([]*Message, error) {
 	if limit <= 0 {
 		limit = 10000
 	}
-	rows, err := s.db.Query(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at
+	rows, err := s.db.Query(`SELECT id, message_id, channel_id, sender_peer_id, content, content_type, encrypted, reply_to, edited, deleted, pinned, delivery_state, created_at, updated_at, signature
 		FROM messages WHERE deleted=0 ORDER BY created_at ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list all messages: %w", err)
@@ -97,7 +98,7 @@ func (s *Store) ListAllMessages(limit int) ([]*Message, error) {
 		msg := &Message{}
 		if err := rows.Scan(&msg.ID, &msg.MessageID, &msg.ChannelID, &msg.SenderPeerID, &msg.Content, &msg.ContentType,
 			&msg.Encrypted, &msg.ReplyTo, &msg.Edited, &msg.Deleted, &msg.Pinned, &msg.DeliveryState,
-			&msg.CreatedAt, &msg.UpdatedAt); err != nil {
+			&msg.CreatedAt, &msg.UpdatedAt, &msg.Signature); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		msgs = append(msgs, msg)
