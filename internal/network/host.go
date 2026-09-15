@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-chat/internal/config"
@@ -30,6 +31,12 @@ import (
 
 const ProtocolID protocol.ID = "/go-chat/1.0.0"
 
+const (
+	maxConcurrentStreams = 256
+	defaultMsgRate       = 20.0
+	defaultMsgBurst      = 60.0
+)
+
 type Node struct {
 	Host      host.Host
 	Config    *config.NetworkConfig
@@ -40,9 +47,39 @@ type Node struct {
 	Cancel    context.CancelFunc
 	mdns      mdns.Service
 
+	streams            atomic.Int32
 	sessionKeys        map[string][]byte
 	sessionMu          sync.RWMutex
+	limiters           map[string]*msgLimiter
+	limitersMu         sync.Mutex
+	syncSessions       map[string]time.Time
+	syncMu             sync.Mutex
 	identityPrivateKey []byte
+}
+
+// msgLimiter is a small token bucket used to throttle inbound messages per
+// remote peer so a connected peer cannot flood the local database or CPU.
+type msgLimiter struct {
+	mu     sync.Mutex
+	tokens float64
+	last   time.Time
+}
+
+func (l *msgLimiter) allow(rate, burst float64) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	elapsed := now.Sub(l.last).Seconds()
+	l.tokens += elapsed * rate
+	if l.tokens > burst {
+		l.tokens = burst
+	}
+	l.last = now
+	if l.tokens >= 1 {
+		l.tokens--
+		return true
+	}
+	return false
 }
 
 func NewNode(privKey libp2pcrypto.PrivKey, cfg *config.NetworkConfig, log *logging.Logger, store *storage.Store, refreshCh chan struct{}) (*Node, error) {
@@ -97,6 +134,8 @@ func NewNode(privKey libp2pcrypto.PrivKey, cfg *config.NetworkConfig, log *loggi
 		Ctx:                ctx,
 		Cancel:             cancel,
 		sessionKeys:        make(map[string][]byte),
+		limiters:           make(map[string]*msgLimiter),
+		syncSessions:       make(map[string]time.Time),
 		identityPrivateKey: ed25519PrivateKeyBytes(privKey),
 	}
 
@@ -145,8 +184,48 @@ func (n *Node) startMDNS() {
 }
 
 func (n *Node) handleStream(s network.Stream) {
+	if !n.acquireStream() {
+		n.Logger.Warn("too many concurrent streams from %s, rejecting", s.Conn().RemotePeer().String())
+		_ = s.Close()
+		return
+	}
+	defer n.releaseStream()
 	n.Logger.Debug("new stream from: %s", s.Conn().RemotePeer().String())
 	NewStreamHandler(n).Handle(s)
+}
+
+func (n *Node) acquireStream() bool {
+	if n.streams.Load() >= maxConcurrentStreams {
+		return false
+	}
+	n.streams.Add(1)
+	return true
+}
+
+func (n *Node) releaseStream() {
+	n.streams.Add(-1)
+}
+
+func (n *Node) allowMessage(peerID string) bool {
+	n.limitersMu.Lock()
+	l := n.limiters[peerID]
+	if l == nil {
+		l = &msgLimiter{tokens: defaultMsgBurst, last: time.Now()}
+		n.limiters[peerID] = l
+	}
+	n.limitersMu.Unlock()
+	return l.allow(defaultMsgRate, defaultMsgBurst)
+}
+
+func (n *Node) allowSyncSession(peerID string) bool {
+	now := time.Now()
+	n.syncMu.Lock()
+	defer n.syncMu.Unlock()
+	if last, ok := n.syncSessions[peerID]; ok && now.Sub(last) < 30*time.Second {
+		return false
+	}
+	n.syncSessions[peerID] = now
+	return true
 }
 
 func (n *Node) Connect(ctx context.Context, addrStr string) (peer.ID, error) {
@@ -419,6 +498,9 @@ func (n *Node) SyncWithPeer(ctx context.Context, peerID peer.ID) error {
 			if n.Store != nil {
 				handler.handleSyncChannelMember(&msg, peerID.String())
 			}
+		case "sync_complete":
+			n.Logger.Debug("received sync_complete from %s", peerID.String())
+			return nil
 		}
 		if n.RefreshCh != nil {
 			select {

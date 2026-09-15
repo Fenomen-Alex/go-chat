@@ -36,6 +36,10 @@ func New(cfg config.DatabaseConfig, logger *logging.Logger) (*Store, error) {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 
+	if err := secureDBFiles(cfg.Path); err != nil {
+		return nil, fmt.Errorf("secure db files: %w", err)
+	}
+
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
@@ -49,6 +53,18 @@ func New(cfg config.DatabaseConfig, logger *logging.Logger) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// secureDBFiles makes sure the database and any sidecar files (WAL, SHM) are
+// only readable by the current user. The identities table holds the Ed25519
+// private key, so these files must never inherit a permissive default umask.
+func secureDBFiles(path string) error {
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, 0600); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("chmod %s: %w", p, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) DB() *sql.DB {

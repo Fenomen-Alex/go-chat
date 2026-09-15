@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go-chat/internal/crypto"
+	"go-chat/internal/safe"
 	"go-chat/internal/storage"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -22,21 +23,23 @@ var errLineTooLong = errors.New("line exceeds max size")
 
 const maxClockSkew = 5 * time.Minute
 
+const maxSyncMessages = 10000
+
 func readLine(r *bufio.Reader, max int) ([]byte, error) {
-	var total int
+	var buf []byte
 	for {
 		b, err := r.ReadSlice('\n')
-		total += len(b)
-		if total > max {
+		buf = append(buf, b...)
+		if len(buf) > max {
 			return nil, errLineTooLong
 		}
-		if err == nil || err == bufio.ErrBufferFull {
-			if err == nil {
-				return b, nil
-			}
+		if err == nil {
+			return buf, nil
+		}
+		if err == bufio.ErrBufferFull {
 			continue
 		}
-		return b, err
+		return buf, err
 	}
 }
 
@@ -95,6 +98,11 @@ func (h *StreamHandler) Handle(s network.Stream) {
 			continue
 		}
 
+		if !h.node.allowMessage(peerID) {
+			h.node.Logger.Debug("dropped %s from %s: rate limit exceeded", msg.Type, peerID)
+			continue
+		}
+
 		h.handleMessage(&msg, s)
 	}
 }
@@ -102,6 +110,12 @@ func (h *StreamHandler) Handle(s network.Stream) {
 func (h *StreamHandler) handleSyncRequest(s network.Stream, peerID string, r *bufio.Reader) {
 	h.node.Logger.Info("handling sync request from %s", peerID)
 
+	if !h.node.allowSyncSession(peerID) {
+		h.node.Logger.Warn("sync session throttled for %s (max 1 per 30s)", peerID)
+		return
+	}
+
+	processed := 0
 	for {
 		s.SetReadDeadline(time.Now().Add(60 * time.Second))
 		data, err := readLine(r, 1<<20)
@@ -126,14 +140,30 @@ func (h *StreamHandler) handleSyncRequest(s network.Stream, peerID string, r *bu
 			break
 		}
 
+		if msg.Type != "sync_request" && msg.Type != "key_exchange" {
+			processed++
+			if processed > maxSyncMessages {
+				h.node.Logger.Debug("sync message limit reached from %s", peerID)
+				break
+			}
+		}
+
 		h.handleMessage(&msg, s)
 	}
 
 	h.sendFullState(s)
+
+	h.SendMessage(s, &Message{
+		Type:      "sync_complete",
+		SenderID:  h.node.Host.ID().String(),
+		Timestamp: time.Now().UnixMilli(),
+	})
+	s.Close()
 }
 
 func (h *StreamHandler) handleMessage(msg *Message, s network.Stream) {
 	remotePeerID := h.remotePeerID(s)
+
 	h.node.Logger.Info("received %s from %s", msg.Type, remotePeerID)
 
 	if !h.verifySignature(msg, remotePeerID) {
@@ -362,6 +392,8 @@ func (h *StreamHandler) handleSyncMessage(msg *Message, remotePeerID string) {
 		return
 	}
 
+	msg.Content = safe.Text(msg.Content)
+
 	if !h.peerCanAccess(remotePeerID, msg.ChannelID) {
 		h.node.Logger.Debug("rejected message for channel %s from %s (no access)", msg.ChannelID, remotePeerID)
 		return
@@ -430,7 +462,7 @@ func (h *StreamHandler) handleSyncOrg(msg *Message, remotePeerID string) {
 	}
 	org := &storage.Organization{
 		OrgID:       msg.OrgID,
-		Name:        msg.Content,
+		Name:        safe.Text(msg.Content),
 		OwnerPeerID: msg.SenderID,
 		CreatedAt:   time.UnixMilli(msg.Timestamp).UTC(),
 		UpdatedAt:   time.Now().UTC(),
@@ -484,7 +516,7 @@ func (h *StreamHandler) handleSyncChannel(msg *Message, s network.Stream) {
 	ch := &storage.Channel{
 		ChannelID:   msg.ChannelID,
 		OrgID:       msg.OrgID,
-		Name:        msg.Content,
+		Name:        safe.Text(msg.Content),
 		ChannelType: msg.ChannelType,
 		CreatedAt:   time.UnixMilli(msg.Timestamp).UTC(),
 		UpdatedAt:   time.Now().UTC(),
@@ -516,7 +548,7 @@ func (h *StreamHandler) handleSyncPeer(msg *Message, remotePeerID string) {
 			return
 		}
 	}
-	name := msg.Content
+	name := strings.TrimSpace(safe.Text(msg.Content))
 	h.dedupMu.Lock()
 	existing, err := h.node.Store.GetPeerByDisplayName(name)
 	if err != nil {
@@ -560,6 +592,11 @@ func (h *StreamHandler) SendMessage(s network.Stream, msg *Message) error {
 	peerID := s.Conn().RemotePeer().String()
 
 	if sendMsg.SenderID == h.node.Host.ID().String() && len(sendMsg.Signature) == 0 {
+		if len(h.node.identityPrivateKey) > 0 {
+			SignMessage(h.node.identityPrivateKey, &sendMsg)
+		}
+	}
+	if sendMsg.Type == "sync_peer" && sendMsg.SenderID != h.node.Host.ID().String() && len(sendMsg.Signature) == 0 {
 		if len(h.node.identityPrivateKey) > 0 {
 			SignMessage(h.node.identityPrivateKey, &sendMsg)
 		}
@@ -610,6 +647,14 @@ func (h *StreamHandler) DecryptMessage(msg *Message, peerID string) {
 
 func (h *StreamHandler) verifySignature(msg *Message, remotePeerID string) bool {
 	if len(msg.Signature) == 0 {
+		return false
+	}
+	// sync_peer may be sent for another peer (relayed). The relayer signs it,
+	// so verify against the remote's key, not the claimed SenderID's key.
+	if msg.Type == "sync_peer" {
+		if pubKey, ok := GetPublicKeyFromPeerstore(h.node.Host, remotePeerID); ok {
+			return VerifyMessageSignature(pubKey, msg)
+		}
 		return false
 	}
 	pubKey := h.getSenderPublicKey(msg.SenderID, remotePeerID)

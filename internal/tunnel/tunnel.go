@@ -40,8 +40,15 @@ func RunServer(addr string) error {
 			mu.Unlock()
 
 			if isDataBack {
-				ch <- c
-				return
+				select {
+				case ch <- c:
+					return
+				default:
+					// Buffer already holds a pending connection and no
+					// consumer is ready yet; refuse rather than block the
+					// handler goroutine forever.
+					return
+				}
 			}
 
 			mu.Lock()

@@ -1,14 +1,22 @@
 package config
 
 type Config struct {
-	Identity  IdentityConfig  `yaml:"identity" json:"identity" toml:"identity"`
-	Network   NetworkConfig   `yaml:"network" json:"network" toml:"network"`
-	Database  DatabaseConfig  `yaml:"database" json:"database" toml:"database"`
-	Downloads DownloadsConfig `yaml:"downloads" json:"downloads" toml:"downloads"`
-	Uploads   UploadsConfig   `yaml:"uploads" json:"uploads" toml:"uploads"`
-	Theme     string          `yaml:"theme" json:"theme" toml:"theme"`
-	Notify    NotifyConfig    `yaml:"notifications" json:"notifications" toml:"notifications"`
-	Logging   LoggingConfig   `yaml:"logging" json:"logging" toml:"logging"`
+	Identity   IdentityConfig   `yaml:"identity" json:"identity" toml:"identity"`
+	Network    NetworkConfig    `yaml:"network" json:"network" toml:"network"`
+	Database   DatabaseConfig   `yaml:"database" json:"database" toml:"database"`
+	Downloads  DownloadsConfig  `yaml:"downloads" json:"downloads" toml:"downloads"`
+	Uploads    UploadsConfig    `yaml:"uploads" json:"uploads" toml:"uploads"`
+	Theme      string           `yaml:"theme" json:"theme" toml:"theme"`
+	Appearance AppearanceConfig `yaml:"appearance" json:"appearance" toml:"appearance"`
+	Notify     NotifyConfig     `yaml:"notifications" json:"notifications" toml:"notifications"`
+	Logging    LoggingConfig    `yaml:"logging" json:"logging" toml:"logging"`
+}
+
+// AppearanceConfig controls optional UI behaviour of the TUI.
+type AppearanceConfig struct {
+	// AutoFullSize maximizes the terminal window (without entering OS
+	// fullscreen) when the chat starts.
+	AutoFullSize bool `yaml:"auto_full_size" json:"auto_full_size" toml:"auto_full_size"`
 }
 
 type IdentityConfig struct {
@@ -75,6 +83,9 @@ func Default() *Config {
 			MaxSize: 50 * 1024 * 1024,
 		},
 		Theme: "dark",
+		Appearance: AppearanceConfig{
+			AutoFullSize: false,
+		},
 		Notify: NotifyConfig{
 			Desktop:  false,
 			Bell:     true,

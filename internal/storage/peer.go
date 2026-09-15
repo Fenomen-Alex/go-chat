@@ -7,23 +7,23 @@ import (
 )
 
 type Peer struct {
-	ID           int64     `json:"id"`
-	PeerID       string    `json:"peer_id"`
-	DisplayName  string    `json:"display_name"`
-	PublicKey    []byte    `json:"public_key"`
-	Fingerprint  string    `json:"fingerprint"`
-	AvatarColor  string    `json:"avatar_color"`
-	Status       string    `json:"status"`
-	Trusted      bool      `json:"trusted"`
-	Blocked      bool      `json:"blocked"`
-	Favorite     bool      `json:"favorite"`
-	Bio          string    `json:"bio"`
-	Timezone     string    `json:"timezone"`
-	Notes        string    `json:"notes"`
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	PeerID      string    `json:"peer_id"`
+	DisplayName string    `json:"display_name"`
+	PublicKey   []byte    `json:"public_key"`
+	Fingerprint string    `json:"fingerprint"`
+	AvatarColor string    `json:"avatar_color"`
+	Status      string    `json:"status"`
+	Trusted     bool      `json:"trusted"`
+	Blocked     bool      `json:"blocked"`
+	Favorite    bool      `json:"favorite"`
+	Bio         string    `json:"bio"`
+	Timezone    string    `json:"timezone"`
+	Notes       string    `json:"notes"`
+	FirstSeen   time.Time `json:"first_seen"`
+	LastSeen    time.Time `json:"last_seen"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (s *Store) SavePeer(p *Peer) error {

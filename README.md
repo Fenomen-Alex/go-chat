@@ -31,6 +31,7 @@
 - **Offline-first** — Messages queued locally, synced when peers reconnect.
 - **Saved connections** — Recent `/connect` targets saved for quick reconnection.
 - **Cross-platform** — Linux amd64/arm64, macOS Intel/Apple Silicon, Windows amd64/arm64.
+- **Full-sized window** — Press `F11` (or `/fullsize`) to use the whole terminal window without entering OS fullscreen.
 
 ## Quick Start
 
@@ -126,6 +127,10 @@ uploads:
   max_size: 52428800           # 50 MB
 
 theme: dark
+
+appearance:
+  auto_full_size: false          # maximize the terminal window on launch (not fullscreen)
+
 notifications:
   desktop: false
   bell: true
@@ -182,6 +187,7 @@ Override with CLI flags:
 | `?` | Toggle help |
 | `P` | Toggle peers list |
 | `L` | Toggle logs overlay |
+| `F11` | Toggle full-sized (not fullscreen) terminal window |
 | `Ctrl+C` / `Ctrl+Q` | Quit |
 
 ### Commands
@@ -206,6 +212,7 @@ Override with CLI flags:
 | `/name [name]` | Show or set your display name |
 | `/profile` | Show your identity info (fingerprint) |
 | `/publicip` | Look up your public IP (for port forwarding) |
+| `/fullsize` | Toggle full-sized (not fullscreen) terminal window |
 | `/quit` | Exit |
 
 ### Connecting to Peers
@@ -360,6 +367,7 @@ internal/
   config/            Configuration (YAML/JSON)
   logging/           Logging (levels, rotation)
   crypto/            X25519, Ed25519, AES-256-GCM, HKDF
+  safe/              Terminal-injection sanitization for untrusted text
   storage/           SQLite database layer
   network/           libp2p host, streams, mDNS
   discovery/         Peer discovery (bootstrap, DHT)
@@ -367,6 +375,7 @@ internal/
   organization/      Organization CRUD
   channel/           Channel CRUD
   tui/               Bubble Tea terminal UI
+  termwindow/        Full-sized terminal window control (darwin/linux/windows)
   sync/              State synchronization
   file/              File transfer
   notification/      Desktop/bell notifications
@@ -383,21 +392,26 @@ Local SQLite database (`chat.db`) with the following tables:
 - `channels` — Channel config and metadata
 - `channel_members` — Private channel membership
 - `memberships` — Peer-org role mappings
-- `messages` — Chat history (encrypted content)
+- `messages` — Chat history (content is decrypted locally; encryption protects the wire, signatures verify authenticity)
 - `attachments` — File transfer metadata
 - `invites` — Pending invitations
 - `reactions` — Emoji reactions on messages
 - `connections` — Saved `/connect` targets for quick reconnection
 - `settings` — Key-value settings store
-- `sessions` — Cryptographic session keys
+- `sessions` — Cryptographic session keys (kept in memory while running)
 
 ## Security
 
 - **Transport** — Encrypted via libp2p's Noise protocol
 - **Messages** — Encrypted with AES-256-GCM using session keys derived from X25519 + HKDF
 - **Identity** — Ed25519 keypairs, verified via fingerprints
-- **Message authenticity** — Per-message Ed25519 signatures
+- **Message authenticity** — Per-message Ed25519 signatures, timestamp window (±5 min)
+- **Input hardening** — Remote display names/channel names/messages are sanitized against terminal escape-sequence injection before storage and rendering
+- **Flood protection** — Per-peer inbound message rate limiting, bounded sync batches, and concurrent stream limits
+- **Key material** — SQLite database files (which hold the identity private key) are chmod'd 0600
 - **No telemetry, no analytics, no cloud**
+
+See [SECURITY.md](SECURITY.md) for the full audit and remaining recommendations.
 
 ## Development
 

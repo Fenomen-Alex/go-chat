@@ -121,7 +121,6 @@ var (
 			Background(lipgloss.Color("#00E5FF")).
 			Padding(0, 1).
 			Bold(true)
-
 )
 
 func senderColor(s string) lipgloss.Color {

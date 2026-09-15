@@ -11,7 +11,9 @@ import (
 
 	"go-chat/internal/app"
 	"go-chat/internal/crypto"
+	"go-chat/internal/safe"
 	"go-chat/internal/storage"
+	"go-chat/internal/termwindow"
 	"go-chat/internal/tunnel"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -29,42 +31,43 @@ type MessageItem struct {
 }
 
 type Model struct {
-	app            *app.App
-	ready          bool
-	width          int
-	height         int
-	channelList    []*storage.Channel
-	selectedChan   int
+	app          *app.App
+	ready        bool
+	width        int
+	height       int
+	channelList  []*storage.Channel
+	selectedChan int
 
-	dmList       []*storage.Channel
-	selectedDM   int
+	dmList     []*storage.Channel
+	selectedDM int
 
-	chatView       viewport.Model
-	messages       []MessageItem
+	chatView viewport.Model
+	messages []MessageItem
 
-	input          textinput.Model
-	inputMode      bool
+	input     textinput.Model
+	inputMode bool
 
-	statusText     string
-	statusLog      []string
+	statusText string
+	statusLog  []string
 
-	peerList       []*storage.Peer
-	logEntries     []string
+	peerList   []*storage.Peer
+	logEntries []string
 
-	showHelp       bool
-	showPeers      bool
-	showLogs       bool
+	showHelp  bool
+	showPeers bool
+	showLogs  bool
 
-	dmFocused      bool
+	dmFocused bool
 
 	pendingConnect string
 	needsName      bool
 	namePromptErr  string
 
-	loading    bool
-	loadingMsg string
-	unread     map[string]int
-	lastMsgCnt map[string]int
+	loading          bool
+	loadingMsg       string
+	loadingStartTime time.Time
+	unread           map[string]int
+	lastMsgCnt       map[string]int
 }
 
 func NewModel(a *app.App) *Model {
@@ -99,7 +102,11 @@ func (m *Model) Init() tea.Cmd {
 	m.loadDMs()
 	m.loadPeers()
 	m.loadLogs()
-	return tea.Batch(textinput.Blink, m.waitForEvent(), m.firstLaunchCmd())
+	cmds := []tea.Cmd{textinput.Blink, m.waitForEvent(), m.firstLaunchCmd()}
+	if m.app.Config.Appearance.AutoFullSize {
+		cmds = append(cmds, m.toggleFullSize())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) firstLaunchCmd() tea.Cmd {
@@ -133,9 +140,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 		leftPanelWidth := 68 // 2 panels x (width(32) + rounded border(2))
+		if m.width >= 200 {
+			leftPanelWidth = 88
+		}
+		if m.width < 120 {
+			leftPanelWidth = 44
+		}
+
 		inputHeight := 3
 		statusHeight := 1
 		chatHeight := m.height - inputHeight - statusHeight - 4
+		if chatHeight < 3 {
+			chatHeight = 3
+		}
 
 		chatW := m.width - leftPanelWidth - 8
 		if chatW < 20 {
@@ -153,10 +170,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.needsName {
 			m.input.Width = 42
 		}
+		if m.input.Width < 20 {
+			m.input.Width = 20
+		}
 
 	case loadingTickMsg:
 		if m.loading {
-			elapsed := time.Since(time.Time(msg)).Truncate(time.Second)
+			elapsed := time.Since(m.loadingStartTime).Truncate(time.Second)
 			dots := elapsed.String()
 			if elapsed > 15*time.Second {
 				m.loadingMsg = "Still connecting... " + dots
@@ -282,6 +302,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showHelp = false
 				m.showPeers = false
 			}
+
+		case "f11":
+			hotkeyHandled = true
+			return m, m.toggleFullSize()
 		}
 
 		if !hotkeyHandled && m.inputMode {
@@ -324,6 +348,7 @@ func (m *Model) handleInput() tea.Cmd {
 			m.pendingConnect = ""
 			m.addStatus(fmt.Sprintf("Connecting to %s...", addr))
 			m.loading = true
+			m.loadingStartTime = time.Now()
 			m.loadingMsg = "Connecting..."
 			appPtr := m.app
 			return tea.Batch(func() tea.Msg {
@@ -433,6 +458,7 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		}
 		m.addStatus(fmt.Sprintf("Connecting to %s...", arg))
 		m.loading = true
+		m.loadingStartTime = time.Now()
 		m.loadingMsg = "Connecting..."
 		appPtr := m.app
 		connAddr := arg
@@ -658,6 +684,7 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		}
 
 		m.loading = true
+		m.loadingStartTime = time.Now()
 		m.loadingMsg = "Setting up tunnel..."
 
 		return func() tea.Msg {
@@ -671,6 +698,7 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 
 	case "/publicip":
 		m.loading = true
+		m.loadingStartTime = time.Now()
 		m.loadingMsg = "Looking up public IP..."
 		return func() tea.Msg {
 			ip, err := fetchPublicIP()
@@ -739,6 +767,9 @@ func (m *Model) handleCommand(text string) tea.Cmd {
 		m.app.SetDisplayName(name)
 		m.addStatus(fmt.Sprintf("Display name changed to '%s'", name))
 
+	case "/fullsize":
+		return m.toggleFullSize()
+
 	case "/quit":
 		return tea.Quit
 
@@ -753,6 +784,19 @@ func (m *Model) loadingTick() tea.Cmd {
 	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
 		return loadingTickMsg(t)
 	})
+}
+
+func (m *Model) toggleFullSize() tea.Cmd {
+	return func() tea.Msg {
+		active, err := termwindow.Default().Toggle()
+		if err != nil {
+			return statusMsg("Full-size window error: " + err.Error())
+		}
+		if active {
+			return statusMsg("Window maximized (F11 restores)")
+		}
+		return statusMsg("Window size restored (F11 maximizes)")
+	}
 }
 
 func (m *Model) addStatus(msg string) {
@@ -1031,7 +1075,7 @@ func (m *Model) renderChannelPanel() string {
 		if ch.ChannelType == "private" {
 			prefix = PrivateChannelIcon + " "
 		}
-		name := ch.Name
+		name := safe.Text(ch.Name)
 		if utf8.RuneCountInString(name) > 22 {
 			name = string([]rune(name)[:22])
 		}
@@ -1064,7 +1108,7 @@ func (m *Model) renderDMPanel() string {
 
 	var items []string
 	for i, ch := range m.dmList {
-		name := ch.Name
+		name := safe.Text(ch.Name)
 		if utf8.RuneCountInString(name) > 24 {
 			name = string([]rune(name)[:24])
 		}
@@ -1092,7 +1136,7 @@ func (m *Model) renderChatPanel() string {
 	if m.dmFocused {
 		if len(m.dmList) > 0 && m.selectedDM < len(m.dmList) {
 			ch := m.dmList[m.selectedDM]
-			header = DMHeaderStyle.Render(" @ "+ch.Name+" ") + "\n"
+			header = DMHeaderStyle.Render(" @ "+safe.Text(ch.Name)+" ") + "\n"
 		}
 	} else if len(m.channelList) > 0 && m.selectedChan < len(m.channelList) {
 		ch := m.channelList[m.selectedChan]
@@ -1100,7 +1144,7 @@ func (m *Model) renderChatPanel() string {
 		if ch.ChannelType == "private" {
 			prefix = " " + PrivateChannelIcon + " "
 		}
-		header = ChannelHeaderStyle.Render(prefix+ch.Name+" ") + "\n"
+		header = ChannelHeaderStyle.Render(prefix+safe.Text(ch.Name)+" ") + "\n"
 	}
 
 	chatContent := header + "\n" + messages
@@ -1178,7 +1222,10 @@ func (m *Model) renderMessages() string {
 		if wrapWidth < 20 {
 			wrapWidth = 20
 		}
-		wrapped := lipgloss.NewStyle().Width(wrapWidth).Render(msg.Content)
+		if wrapWidth > 96 {
+			wrapWidth = 96
+		}
+		wrapped := lipgloss.NewStyle().Width(wrapWidth).Render(safe.Text(msg.Content))
 		contentLines := strings.Split(wrapped, "\n")
 		for j, cl := range contentLines {
 			if j == 0 {
@@ -1211,7 +1258,7 @@ func (m *Model) renderStatusBar() string {
 	ctx := ""
 	if m.dmFocused {
 		if len(m.dmList) > 0 && m.selectedDM < len(m.dmList) {
-			ctx = "@ " + m.dmList[m.selectedDM].Name
+			ctx = "@ " + safe.Text(m.dmList[m.selectedDM].Name)
 		}
 	} else if len(m.channelList) > 0 && m.selectedChan < len(m.channelList) {
 		ch := m.channelList[m.selectedChan]
@@ -1219,12 +1266,12 @@ func (m *Model) renderStatusBar() string {
 		if ch.ChannelType == "private" {
 			prefix = PrivateChannelIcon
 		}
-		ctx = prefix + ch.Name
+		ctx = prefix + safe.Text(ch.Name)
 	}
 
-	statusText := m.statusText
+	statusText := safe.Text(m.statusText)
 	if ctx != "" {
-		statusText = ctx + " │ " + m.statusText
+		statusText = ctx + " │ " + statusText
 	}
 	if m.loading {
 		statusText = "⟳ " + m.loadingMsg
@@ -1271,6 +1318,7 @@ func (m *Model) helpView() string {
   /dm <peer>          Open direct message
   /name [name]        Show or set your display name
   /profile            Show your profile
+  /fullsize           Toggle full-sized (not fullscreen) terminal window
   /quit               Quit
 
 Keys:
@@ -1280,6 +1328,7 @@ Keys:
   ?          Toggle help
   P          Toggle peers
   L          Toggle logs
+  F11        Toggle full-sized window
   Ctrl+C     Quit
 
 Internet:
@@ -1298,7 +1347,7 @@ func (m *Model) peersView() string {
 		if utf8.RuneCountInString(id) > 16 {
 			id = string([]rune(id)[:16])
 		}
-		items = append(items, fmt.Sprintf("  %s (%s) [%s]", p.DisplayName, p.Status, id))
+		items = append(items, fmt.Sprintf("  %s (%s) [%s]", safe.Text(p.DisplayName), p.Status, id))
 	}
 	return strings.Join(items, "\n")
 }
@@ -1310,7 +1359,7 @@ func (m *Model) logsView() string {
 		statusStart = len(m.statusLog) - 3
 	}
 	for i := statusStart; i < len(m.statusLog); i++ {
-		entry := m.statusLog[i]
+		entry := safe.Text(m.statusLog[i])
 		if utf8.RuneCountInString(entry) > 60 {
 			entry = string([]rune(entry)[:60])
 		}
@@ -1326,7 +1375,7 @@ func (m *Model) logsView() string {
 		logStart = len(m.logEntries) - maxLogLines
 	}
 	for i := logStart; i < len(m.logEntries); i++ {
-		entry := m.logEntries[i]
+		entry := safe.Text(m.logEntries[i])
 		if utf8.RuneCountInString(entry) > 55 {
 			entry = string([]rune(entry)[:55])
 		}
@@ -1355,8 +1404,10 @@ func extractPort(addr string) int {
 	return 0
 }
 
+var publicIPClient = &http.Client{Timeout: 10 * time.Second}
+
 func fetchPublicIP() (string, error) {
-	resp, err := http.Get("https://api.ipify.org")
+	resp, err := publicIPClient.Get("https://api.ipify.org")
 	if err != nil {
 		return "", err
 	}
