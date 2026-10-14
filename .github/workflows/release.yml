@@ -92,6 +92,8 @@ jobs:
             # Build TUI version (default for main and other branches)
             BINARY="chat-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
             go build -ldflags="-s -w" -o "build/$BINARY" ./cmd/chat
+          fi
+
       - name: Bundle macOS .app
         if: matrix.bundle == 'app' && github.ref_name != 'gui'
         run: |
