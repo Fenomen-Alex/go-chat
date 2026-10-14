@@ -50,6 +50,12 @@ func New(cfgPath string) (*App, error) {
 		return nil, fmt.Errorf("create logger: %w", err)
 	}
 
+	return NewFromConfig(cfg, log)
+}
+
+// NewFromConfig creates an App from pre-loaded config and logger.
+// This is useful for GUI applications that need to resolve paths before creating the app.
+func NewFromConfig(cfg *config.Config, log *logging.Logger) (*App, error) {
 	store, err := storage.New(cfg.Database, log)
 	if err != nil {
 		return nil, fmt.Errorf("create storage: %w", err)

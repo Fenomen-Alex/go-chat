@@ -44,3 +44,9 @@ config.yaml
 
 # Codebase analysis (NOT for commits)
 ANALYSIS.md
+/frontend/node_modules/
+/frontend/wailsjs/
+/cmd/chat-gui/build/
+/dist/
+/cmd/build/
+wails.json.backup

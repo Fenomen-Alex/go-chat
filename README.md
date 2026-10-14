@@ -2,7 +2,7 @@
 
 [![Release](https://github.com/Fenomen-Alex/go-chat/actions/workflows/release.yml/badge.svg)](https://github.com/Fenomen-Alex/go-chat/actions/workflows/release.yml)
 
-**Terminal P2P Chat** — A serverless, encrypted, peer-to-peer messaging platform that runs entirely in your terminal.
+**go-chat** — A serverless, encrypted, peer-to-peer messaging platform with both terminal and desktop GUI interfaces.
 
 ```
                    _                    
@@ -17,10 +17,10 @@
 
 ## Features
 
+- **Dual Interface**: Use either the beautiful desktop GUI or the classic terminal UI
 - **No servers, no accounts** — Pure P2P. Every client is an equal peer.
 - **End-to-end encrypted** — X25519 key exchange, AES-256-GCM AEAD, HKDF session keys.
 - **Local-first** — All data stored in SQLite. You own everything.
-- **Terminal UI** — Built with Bubble Tea, Lip Gloss, and Bubbles.
 - **libp2p networking** — TCP, QUIC, mDNS discovery, relay, NAT traversal, hole punching.
 - **Color-coded senders** — Each peer gets a unique color in chat.
 - **Organizations & Channels** — Create orgs, channels, manage members and permissions.
@@ -31,7 +31,6 @@
 - **Offline-first** — Messages queued locally, synced when peers reconnect.
 - **Saved connections** — Recent `/connect` targets saved for quick reconnection.
 - **Cross-platform** — Linux amd64/arm64, macOS Intel/Apple Silicon, Windows amd64/arm64.
-- **Full-sized window** — Press `F11` (or `/fullsize`) to use the whole terminal window without entering OS fullscreen.
 
 ## Quick Start
 
@@ -96,6 +95,7 @@ Type `/connect <address>` to connect to a peer. If your display name is still th
 ## Configuration
 
 Config is loaded from `~/.config/go-chat/config.yaml` (created automatically with defaults).
+Both the terminal UI and desktop GUI use the same configuration file.
 
 ### Example config.yaml
 
@@ -142,8 +142,7 @@ logging:
   rotate: true
 ```
 
-Override with CLI flags:
-
+Override with CLI flags (for terminal UI):
 ```bash
 ./chat                           # Launch TUI
 ./chat --serve                   # Headless relay mode (no TUI)
@@ -153,8 +152,12 @@ Override with CLI flags:
 ./chat --version
 ```
 
-> **Public relay:** Run `chat --serve` on any public server to create a relay that your peers can use without port forwarding.
-> **TCP tunnel:** Add `--tunnel :1234` to also run a tunnel server — clients use `/tunnel <ip>:1234`.
+GUI-specific launch options:
+```bash
+./go-chat-gui                    # Launch GUI (uses default config location)
+./go-chat-gui --config /path/to/config.yaml
+./go-chat-gui --name "myname"    # Set display name
+```
 
 ## Usage
 
@@ -418,8 +421,10 @@ See [SECURITY.md](SECURITY.md) for the full audit and remaining recommendations.
 ### Project Structure
 
 ```
-cmd/chat/main.go          Entrypoint
+cmd/chat/main.go          CLI/TUI Entrypoint
+cmd/chat-gui/main.go      GUI Entrypoint (Wails v2)
 internal/app/             Core application logic
+internal/gui/             GUI service layer and data transfer objects
 internal/tui/             Bubble Tea model, styles, panels
 internal/network/         libp2p host setup, stream handler
 internal/crypto/          Cryptographic primitives
@@ -439,7 +444,15 @@ internal/commands/        Command registry
 ### Build
 
 ```bash
+# Build CLI/TUI
 go build -o chat ./cmd/chat
+
+# Build GUI (requires Node.js)
+cd frontend
+npm install
+npm run build  # or npm run dev for development
+cd ..
+go build -o go-chat-gui ./cmd/chat-gui
 ```
 
 ### Cross-compile (all targets)
@@ -462,14 +475,20 @@ GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-windows-arm64.
 
 Pre-built binaries for all platforms are available from the [Releases](https://github.com/Fenomen-Alex/go-chat/releases) page:
 
-| Platform | Architecture | Binary |
-|----------|-------------|--------|
-| Linux | amd64 | `chat-linux-amd64` |
-| Linux | arm64 | `chat-linux-arm64` |
-| macOS | Intel | `chat-darwin-amd64` |
-| macOS | Apple Silicon | `chat-darwin-arm64` |
-| Windows | amd64 | `chat-windows-amd64.exe` |
-| Windows | arm64 | `chat-windows-arm64.exe` |
+| Interface | Platform | Architecture | Binary |
+|-----------|----------|-------------|--------|
+| CLI/TUI | Linux | amd64 | `chat-linux-amd64` |
+| CLI/TUI | Linux | arm64 | `chat-linux-arm64` |
+| CLI/TUI | macOS | Intel | `chat-darwin-amd64` |
+| CLI/TUI | macOS | Apple Silicon | `chat-darwin-arm64` |
+| CLI/TUI | Windows | amd64 | `chat-windows-amd64.exe` |
+| CLI/TUI | Windows | arm64 | `chat-windows-arm64.exe` |
+| GUI | Linux | amd64 | `go-chat-gui-linux-amd64` |
+| GUI | Linux | arm64 | `go-chat-gui-linux-arm64` |
+| GUI | macOS | Intel | `go-chat-gui-darwin-amd64` |
+| GUI | macOS | Apple Silicon | `go-chat-gui-darwin-arm64` |
+| GUI | Windows | amd64 | `go-chat-gui-windows-amd64.exe` |
+| GUI | Windows | arm64 | `go-chat-gui-windows-arm64.exe` |
 
 Each release includes SHA-256 checksums for integrity verification.
 
@@ -500,10 +519,11 @@ The workflow at `.github/workflows/release.yml` handles the rest.
 |---|------|--------|
 | 1 | Foundation — project structure, config, identity, SQLite, libp2p, TUI | Done |
 | 2 | Chat — DMs, private channels, invites, sync, history | Done |
-| 3 | Organizations — membership, roles, permissions, moderation | In Progress |
-| 4 | Synchronization — multi-peer state, offline queue, conflict resolution | Planned |
-| 5 | Advanced — threads, bookmarks, themes, command palette, encrypted backups | Planned |
-| 6 | Polish — performance, security audit, cross-platform validation, releases | Planned |
+| 3 | Organizations — membership, roles, permissions, moderation | Done |
+| 4 | **GUI Development** — Wails v2 integration, modern interface, cross-platform | **Done** |
+| 5 | Synchronization — multi-peer state, offline queue, conflict resolution | Done |
+| 6 | Advanced — threads, bookmarks, themes, command palette, encrypted backups | Planned |
+| 7 | Polish — performance, security audit, cross-platform validation, releases | Done |
 
 ## License
 

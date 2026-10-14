@@ -1,0 +1,18 @@
+{
+  "name": "go-chat-gui",
+  "outputtype": "default",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watch": "npm run dev",
+  "frontend:dev:server": "npm run dev",
+  "backend:install": "go install",
+  "backend:build": "go build -o go-chat-gui -ldflags=-s -w",
+  "backend:dev:run": "go run .",
+  "backend:directory": "cmd/chat-gui",
+  "permission": [],
+  "metadata": {
+    "name": "go-chat-gui",
+    "description": "go-chat GUI desktop application",
+    "version": "0.1.0"
+  }
+}
