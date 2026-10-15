@@ -87,7 +87,7 @@ jobs:
             npm run build
             cd ..
             BINARY="go-chat-gui-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
-            go build -ldflags="-s -w" -o "build/$BINARY" ./cmd/chat-gui
+            go build -tags wails -ldflags="-s -w" -o "build/$BINARY" ./cmd/chat-gui
           else
             # Build TUI version (default for main and other branches)
             BINARY="chat-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"

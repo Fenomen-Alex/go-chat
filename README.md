@@ -114,8 +114,8 @@ npm install
 npm run build
 cd ..
 
-# Build GUI application
-go build -o go-chat-gui ./cmd/chat-gui
+# Build GUI application (requires `wails` build tag)
+go build -tags wails -o go-chat-gui ./cmd/chat-gui
 ```
 
 #### Run
@@ -513,6 +513,14 @@ GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-darwin-arm64 ./
 # Windows
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/chat-windows-amd64.exe ./cmd/chat
 GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-windows-arm64.exe ./cmd/chat
+
+# GUI (requires -tags wails)
+GOOS=linux GOARCH=amd64 go build -tags wails -ldflags="-s -w" -o build/go-chat-gui-linux-amd64 ./cmd/chat-gui
+GOOS=linux GOARCH=arm64 go build -tags wails -ldflags="-s -w" -o build/go-chat-gui-linux-arm64 ./cmd/chat-gui
+GOOS=darwin GOARCH=amd64 go build -tags wails -ldflags="-s -w" -o build/go-chat-gui-darwin-amd64 ./cmd/chat-gui
+GOOS=darwin GOARCH=arm64 go build -tags wails -ldflags="-s -w" -o build/go-chat-gui-darwin-arm64 ./cmd/chat-gui
+GOOS=windows GOARCH=amd64 go build -tags wails -ldflags="-s -w" -o build/go-chat-gui-windows-amd64.exe ./cmd/chat-gui
+GOOS=windows GOARCH=arm64 go build -tags wails -ldflags="-s -w" -o build/go-chat-gui-windows-arm64.exe ./cmd/chat-gui
 ```
 
 ### Download Pre-built Binaries
