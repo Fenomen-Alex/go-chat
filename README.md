@@ -34,35 +34,63 @@
 
 ## Quick Start
 
-### macOS
+### Desktop GUI (Recommended)
 
+#### macOS
+1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
+2. Download `go-chat-gui-darwin-arm64.dmg` (Apple Silicon) or `go-chat-gui-darwin-amd64.dmg` (Intel)
+3. Open the DMG and drag `go-chat-gui` to your Applications folder
+4. Launch `go-chat-gui` from Applications or Spotlight
+5. On first launch, go-chat automatically:
+   - Generates an Ed25519 identity keypair
+   - Derives your libp2p Peer ID
+   - Creates a local SQLite database
+   - Starts listening on a random TCP port
+   - Discovers peers via mDNS on the local network
+
+#### Windows
+1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
+2. Download `go-chat-gui-windows-amd64.exe`
+3. Extract and double-click `go-chat-gui-windows-amd64.exe`
+4. On first launch, go-chat automatically:
+   - Generates an Ed25519 identity keypair
+   - Derives your libp2p Peer ID
+   - Creates a local SQLite database
+   - Starts listening on a random TCP port
+   - Discovers peers via mDNS on the local network
+
+#### Linux
+1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
+2. Download `go-chat-gui-linux-amd64` or `go-chat-gui-linux-arm64`
+3. Extract and make executable: `chmod +x go-chat-gui-linux-*`
+4. Run: `./go-chat-gui-linux-*`
+5. On first launch, go-chat automatically:
+   - Generates an Ed25519 identity keypair
+   - Derives your libp2p Peer ID
+   - Creates a local SQLite database
+   - Starts listening on a random TCP port
+   - Discovers peers via mDNS on the local network
+
+### Terminal UI (TUI) — For terminal enthusiasts
+
+#### macOS
 1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
 2. Download `chat-darwin-amd64.zip` (Intel) or `chat-darwin-arm64.zip` (Apple Silicon)
 3. Double-click the zip to extract — you'll see `chat.app`
 4. **Right-click** `chat.app` → **Open** (first time only — macOS security)
 5. The chat opens in Terminal — ready to use
 
-> **Troubleshooting:** If you downloaded the standalone binary instead of the `.app` bundle, macOS may block it. Run these commands in Terminal:
-> ```bash
-> chmod +x chat-darwin-amd64
-> xattr -d com.apple.quarantine chat-darwin-amd64
-> ./chat-darwin-amd64
-> ```
-
-### Windows
-
+#### Windows
 1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
 2. Download `chat-windows-amd64.exe.zip`
 3. Extract and double-click `chat-windows-amd64.exe`
 
-### Linux
-
+#### Linux
 1. Go to [Releases](https://github.com/Fenomen-Alex/go-chat/releases)
 2. Download `chat-linux-amd64.tar.gz` or `chat-linux-arm64.tar.gz`
 3. Extract and run `./chat` in terminal
 
 ### Terminal one-liner (any OS)
-
 ```bash
 curl -sfL https://raw.githubusercontent.com/Fenomen-Alex/go-chat/main/install.sh | sh
 ```
@@ -70,20 +98,36 @@ curl -sfL https://raw.githubusercontent.com/Fenomen-Alex/go-chat/main/install.sh
 ### Build from source
 
 #### Prerequisites
-
 - Go 1.24+
+- Node.js 18+ and npm (for GUI frontend)
 
+#### Build CLI/TUI (`chat`)
 ```bash
 go build -o chat ./cmd/chat
 ```
 
-### Run
-
+#### Build Desktop GUI (`go-chat-gui`)
 ```bash
-./chat
+# Install GUI dependencies
+cd frontend
+npm install
+npm run build
+cd ..
+
+# Build GUI application
+go build -o go-chat-gui ./cmd/chat-gui
 ```
 
-On first launch, go-chat automatically:
+#### Run
+```bash
+# Terminal UI
+./chat
+
+# Desktop GUI  
+./go-chat-gui
+```
+
+On first launch (either interface), go-chat automatically:
 1. Generates an Ed25519 identity keypair
 2. Derives your libp2p Peer ID
 3. Creates a local SQLite database
