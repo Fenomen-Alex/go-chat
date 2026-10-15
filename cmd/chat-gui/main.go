@@ -4,16 +4,21 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"log"
+	"os"
 
 	"go-chat/internal/app"
 	"go-chat/internal/gui"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2"
 )
+
+var frontendAssetsDir = "../build/frontend"
 
 func main() {
 	// Create application instance with default config path
@@ -54,7 +59,11 @@ func runWails(a *app.App, gs *gui.Service) error {
 		Bind: []interface{}{
 			gs,
 		},
-		// Windows-specific options
+		AssetServer: &assetserver.Options{
+			Assets: func() fs.FS {
+				return os.DirFS(frontendAssetsDir)
+			}(),
+		},
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
 			WindowIsTranslucent: false,
