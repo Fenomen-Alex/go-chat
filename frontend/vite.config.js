@@ -10,7 +10,7 @@ export default defineConfig({
   base: './',
   publicDir: './public',
   build: {
-    outDir: '../../build/frontend',
+    outDir: '../cmd/build/frontend',
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {

@@ -1,5 +1,3 @@
-//go:build wails
-
 package main
 
 import (
@@ -7,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 
 	"go-chat/internal/app"
 	"go-chat/internal/gui"
@@ -18,7 +17,28 @@ import (
 	"github.com/wailsapp/wails/v2"
 )
 
-var frontendAssetsDir = "../build/frontend"
+func frontendAssetsDir() string {
+	// Try relative to executable first (works when launched from anywhere)
+	ex, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(ex)
+		candidate := filepath.Join(dir, "build", "frontend")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		// Also try one level up (e.g. executable in cmd/build/)
+		candidate2 := filepath.Join(dir, "..", "build", "frontend")
+		if _, err := os.Stat(candidate2); err == nil {
+			return candidate2
+		}
+	}
+	// Fallback to CWD-relative (works when run from cmd/chat-gui/)
+	candidate := "../build/frontend"
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return candidate
+}
 
 func main() {
 	// Create application instance with default config path
@@ -61,7 +81,7 @@ func runWails(a *app.App, gs *gui.Service) error {
 		},
 		AssetServer: &assetserver.Options{
 			Assets: func() fs.FS {
-				return os.DirFS(frontendAssetsDir)
+				return os.DirFS(frontendAssetsDir())
 			}(),
 		},
 		Windows: &windows.Options{

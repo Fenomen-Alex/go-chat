@@ -114,8 +114,8 @@ npm install
 npm run build
 cd ..
 
-# Build GUI application (requires `wails,production` build tags)
-go build -tags wails,production -o go-chat-gui ./cmd/chat-gui
+# Build GUI application (requires `production` build tags)
+go build -tags production -o go-chat-gui ./cmd/chat-gui
 ```
 
 #### Run
@@ -496,7 +496,7 @@ cd frontend
 npm install
 npm run build  # or npm run dev for development
 cd ..
-go build -tags wails,production -o go-chat-gui ./cmd/chat-gui
+go build -tags production -o go-chat-gui ./cmd/chat-gui
 ```
 
 ### Cross-compile (all targets)
@@ -514,13 +514,13 @@ GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-darwin-arm64 ./
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/chat-windows-amd64.exe ./cmd/chat
 GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/chat-windows-arm64.exe ./cmd/chat
 
-# GUI (requires -tags wails,production; macOS needs CGO_LDFLAGS="-framework UniformTypeIdentifiers")
-GOOS=linux GOARCH=amd64 go build -tags wails,production -ldflags="-s -w" -o build/go-chat-gui-linux-amd64 ./cmd/chat-gui
-GOOS=linux GOARCH=arm64 go build -tags wails,production -ldflags="-s -w" -o build/go-chat-gui-linux-arm64 ./cmd/chat-gui
-GOOS=darwin GOARCH=amd64 CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags wails,production -ldflags="-s -w" -o build/go-chat-gui-darwin-amd64 ./cmd/chat-gui
-GOOS=darwin GOARCH=arm64 CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags wails,production -ldflags="-s -w" -o build/go-chat-gui-darwin-arm64 ./cmd/chat-gui
-GOOS=windows GOARCH=amd64 go build -tags wails,production -ldflags="-s -w" -o build/go-chat-gui-windows-amd64.exe ./cmd/chat-gui
-GOOS=windows GOARCH=arm64 go build -tags wails,production -ldflags="-s -w" -o build/go-chat-gui-windows-arm64.exe ./cmd/chat-gui
+# GUI (requires -tags production; macOS needs CGO_LDFLAGS="-framework UniformTypeIdentifiers")
+GOOS=linux GOARCH=amd64 go build -tags production -ldflags="-s -w" -o build/go-chat-gui-linux-amd64 ./cmd/chat-gui
+GOOS=linux GOARCH=arm64 go build -tags production -ldflags="-s -w" -o build/go-chat-gui-linux-arm64 ./cmd/chat-gui
+GOOS=darwin GOARCH=amd64 CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags production -ldflags="-s -w" -o build/go-chat-gui-darwin-amd64 ./cmd/chat-gui
+GOOS=darwin GOARCH=arm64 CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags production -ldflags="-s -w" -o build/go-chat-gui-darwin-arm64 ./cmd/chat-gui
+GOOS=windows GOARCH=amd64 go build -tags production -ldflags="-s -w" -o build/go-chat-gui-windows-amd64.exe ./cmd/chat-gui
+GOOS=windows GOARCH=arm64 go build -tags production -ldflags="-s -w" -o build/go-chat-gui-windows-arm64.exe ./cmd/chat-gui
 ```
 
 ### Download Pre-built Binaries

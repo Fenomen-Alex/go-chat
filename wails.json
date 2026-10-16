@@ -6,7 +6,7 @@
   "frontend:dev:watch": "npm run dev",
   "frontend:dev:server": "npm run dev",
   "backend:install": "go install",
-  "backend:build": "go build -tags wails,production -o go-chat-gui -ldflags=-s -w",
+  "backend:build": "go build -tags production -o go-chat-gui -ldflags=-s -w",
   "backend:dev:run": "go run .",
   "backend:directory": "cmd/chat-gui",
   "permission": [],

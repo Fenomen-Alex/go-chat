@@ -1,19 +1,34 @@
 <template>
-  <div class="message-item flex" :class="{ self: isSelf, other: !isSelf }">
-    <div class="message-item-avatar">
-      <img v-if="message.avatarUrl" :src="message.avatarUrl" :alt="message.senderName" class="w-full h-full object-cover rounded-full" />
-      <div v-else class="w-full h-full flex items-center justify-center bg-border/50 text-border/50 text-xs font-medium">
-        {{ message.senderName[0] }}
+  <div class="message-wrapper flex" :class="{ 'justify-end': isSelf, 'justify-start': !isSelf }">
+    <!-- Other user's message -->
+    <div v-if="!isSelf" class="flex items-end space-x-2 animate-fade-in">
+      <div class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div class="w-full h-full flex items-center justify-center text-primary font-medium text-xs">{{ message?.senderName?.[0] || 'U' }}</div>
+      </div>
+      <div class="flex flex-col">
+        <div class="message-bubble bg-message-other rounded-lg rounded-tr-none px-3 py-2 text-sm text-chat-text max-w-[80%] break-words whitespace-pre-wrap" :class="{ 'rounded-tr-lg': !isSelf }">
+          {{ message.content }}
+        </div>
+        <div class="flex items-center space-x-1 mt-0.5">
+          <span class="text-[10px] text-chat-text-muted">{{ formatTime(message.timestamp) }}</span>
+          <span v-if="message.deliveryState === 'read'" class="text-[10px] text-success">✓✓</span>
+          <span v-else-if="message.deliveryState === 'sent'" class="text-[10px] text-chat-text-muted">✓</span>
+        </div>
       </div>
     </div>
-    <div class="message-item-content flex-1">
-      <div class="message-item-header">
-        <div class="message-item-author text-sm font-medium">{{ message.senderName }}</div>
-        <div class="message-item-timestamp text-xs text-border/40">{{ formatTimestamp(message.timestamp) }}</div>
-      </div>
-      <div class="message-item-text text-sm whitespace-pre-wrap break-all">{{ message.content }}</div>
-      <div v-if="message.deliveryState && !isSelf" class="message-item-status text-xs" :class="{ sent: message.deliveryState === 'sent', received: message.deliveryState === 'received', failed: message.deliveryState === 'failed' }">
-        {{ message.deliveryState === 'sent' ? '✓' : message.deliveryState === 'received' ? '✓✓' : '✗' }}
+
+    <!-- Self message -->
+    <div v-else class="flex items-end space-x-2 animate-fade-in">
+      <div class="flex flex-col">
+        <div class="message-bubble bg-message-self rounded-lg rounded-tl-none px-3 py-2 text-sm text-white max-w-[80%] break-words whitespace-pre-wrap" :class="{ 'rounded-tl-lg': isSelf }">
+          {{ message.content }}
+        </div>
+        <div class="flex items-center space-x-1 mt-0.5 justify-end">
+          <span class="text-[10px] text-chat-text-muted">{{ formatTime(message.timestamp) }}</span>
+          <span v-if="message.deliveryState === 'read'" class="text-[10px] text-success">✓✓</span>
+          <span v-else-if="message.deliveryState === 'sent'" class="text-[10px] text-chat-text-muted">✓</span>
+          <span v-else class="text-[10px] text-warning animate-pulse">●</span>
+        </div>
       </div>
     </div>
   </div>
@@ -33,38 +48,37 @@ export default {
     }
   },
   methods: {
-    formatTimestamp(timestamp) {
+    formatTime(timestamp) {
       if (!timestamp) return ''
-      
       const date = new Date(timestamp)
-      const now = new Date()
-      
-      // If today, show time only
-      if (date.toDateString() === now.toDateString()) {
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-      
-      // If yesterday, show "Yesterday"
-      const yesterday = new Date(now)
-      yesterday.setDate(yesterday.getDate() - 1)
-      if (date.toDateString() === yesterday.toDateString()) {
-        return 'Yesterday'
-      }
-      
-      // If within last 7 days, show day and time
-      const diffTime = Math.abs(now - date)
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-      if (diffDays < 7) {
-        return date.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-      
-      // Otherwise, show date
-      return date.toLocaleDateString()
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   }
 }
 </script>
 
 <style scoped>
-/* Styles are handled in App.vue scoped styles */
+.message-bubble {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.bg-message-other {
+  background-color: rgba(55, 65, 81, 0.6);
+  border: 1px solid rgba(75, 85, 99, 0.3);
+  color: #f3f4f6;
+}
+
+.bg-message-self {
+  background-color: #7c3aed;
+  color: #ffffff;
+}
+
+.text-success {
+  color: #22c55e;
+}
+
+.text-warning {
+  color: #f59e0b;
+}
 </style>
