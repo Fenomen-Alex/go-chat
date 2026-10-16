@@ -7,7 +7,7 @@ import { env } from 'process'
 export default defineConfig({
   plugins: [vue()],
   root: './',
-  base: './',
+  base: '/',
   publicDir: './public',
   build: {
     outDir: '../cmd/build/frontend',
@@ -17,6 +17,11 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html')
       }
+    }
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src')
     }
   },
   server: {
